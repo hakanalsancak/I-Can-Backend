@@ -1,0 +1,31 @@
+{
+  "name": "i-can-backend",
+  "version": "1.0.0",
+  "description": "Backend API for I Can: Track Your Performance",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "db:init": "node src/db/init.js"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.0",
+    "apple-signin-auth": "^2.0.0",
+    "apn": "^2.2.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "google-auth-library": "^9.14.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "node-cron": "^3.0.3",
+    "openai": "^4.70.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
