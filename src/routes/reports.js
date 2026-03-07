@@ -7,6 +7,7 @@ const reportController = require('../controllers/reportController');
 router.use(authenticate);
 
 router.get('/', reportController.getReports);
+router.get('/can-generate', reportController.checkCanGenerate);
 router.get('/:id', reportController.getReportById);
 router.post('/generate', aiLimiter, reportController.generateReport);
 

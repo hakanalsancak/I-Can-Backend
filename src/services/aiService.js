@@ -1,62 +1,149 @@
 const { getClient } = require('../config/openai');
 const { query } = require('../config/database');
 
-const SYSTEM_PROMPT = `You are a professional sports performance coach analyzing an athlete's daily performance data.
-Your role is to provide structured, actionable coaching feedback.
-Be motivational, specific, and reference the athlete's goals when relevant.
-Speak directly to the athlete using "you" language.
-Keep your tone encouraging but honest — like a trusted coach.
-Always respond with valid JSON matching the requested format.`;
+const ROTATING_QUESTIONS = {
+  1: 'How focused were you during training today?',
+  2: 'Did you give maximum effort today?',
+  3: 'How confident did you feel today?',
+  4: 'How well did you handle mistakes today?',
+  5: 'How disciplined were you today?',
+  6: 'How was your energy level today?',
+  7: 'Did you follow your training plan today?',
+  8: 'What did you learn today?',
+  9: 'How prepared did you feel today?',
+  10: 'How satisfied are you with today\'s performance?',
+};
 
-function buildUserPrompt(entries, goals, sport, mantra, reportType) {
-  const periodLabel = reportType === 'weekly' ? 'week' : reportType === 'monthly' ? 'month' : 'year';
+function buildSystemPrompt(sport, mantra, reportType) {
+  const periodLabel = reportType === 'weekly' ? 'week' : 'month';
 
-  return JSON.stringify({
-    instruction: `Analyze this athlete's ${periodLabel} of performance data and provide coaching feedback.`,
-    sport,
-    mantra,
-    entries: entries.map((e) => ({
-      date: e.entry_date,
-      activityType: e.activity_type,
-      focus: e.focus_rating,
-      effort: e.effort_rating,
-      confidence: e.confidence_rating,
-      performanceScore: e.performance_score,
-      didWell: e.did_well,
-      toImprove: e.improve_next,
-      rotatingAnswer: e.rotating_answer,
-    })),
-    goals: goals.map((g) => ({
-      type: g.goal_type,
-      title: g.title,
-      description: g.description,
-      targetValue: g.target_value,
-      currentValue: g.current_value,
-      isCompleted: g.is_completed,
-    })),
-    responseFormat: {
-      summary: 'Brief overall assessment (2-3 sentences)',
-      strengths: ['Array of identified strengths'],
-      areasForImprovement: ['Array of areas to improve'],
-      mentalPatterns: 'Analysis of mental/emotional patterns',
-      consistencyAnalysis: 'Assessment of training consistency',
-      goalProgress: [{ goal: 'Goal title', analysis: 'Progress analysis', recommendation: 'Actionable recommendation' }],
-      actionableTips: ['Specific actionable tips for next period'],
-      motivationalMessage: 'Closing motivational message referencing their mantra if provided',
-    },
+  return `You are an elite sports performance coach — the kind of coach that professional ${sport} athletes pay thousands of dollars to work with. You combine deep expertise in sport psychology, physical performance science, and mental conditioning.
+
+You are analyzing a ${sport} athlete's ${periodLabel} of daily performance journal entries. This athlete trusts you completely and relies on your feedback to get better every single day.
+
+YOUR COACHING PHILOSOPHY:
+- You speak directly to the athlete ("you"), like a trusted mentor who has watched every session
+- You are honest and specific — never generic. You reference EXACT details from their entries (dates, scores, what they wrote, patterns you see)
+- You balance tough love with genuine encouragement. If they had a bad day, acknowledge it but show them the path forward
+- You think about both the MENTAL and PHYSICAL side of performance — they are inseparable
+- You connect the dots between entries that the athlete might not see themselves
+- You treat their personal mantra as sacred — it represents who they want to become
+
+${mantra ? `THE ATHLETE'S PERSONAL MANTRA: "${mantra}" — This is their core identity statement. Reference it naturally when it connects to what you observe in their data. Don't force it, but when their actions align with or contradict this mantra, call it out.` : ''}
+
+CRITICAL RULES:
+- NEVER give generic advice like "keep it up" or "stay consistent" without connecting it to specific data points
+- ALWAYS quote or paraphrase what the athlete actually wrote in their reflections — show them you read every word
+- When you see a rating drop (focus, effort, or confidence), dig into WHY based on the surrounding context
+- When you see a rating improve, celebrate it specifically and explain what they did differently
+- Look for patterns across days: did rest days help or hurt their next session? Do game days show different mental states than training days?
+- If they said something in "what they did well" one day and it shows up in "what to improve" another day, call out that inconsistency constructively
+- Track their energy and discipline patterns — these are early warning signs for burnout or breakthrough
+
+RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structure:
+
+{
+  "summary": "A powerful 3-4 sentence overview that immediately shows the athlete you understood their ${periodLabel}. Reference specific highs and lows by date. Set the tone for the rest of the report.",
+
+  "strengths": [
+    "Each strength must reference specific entries, dates, or patterns. Example: 'On Tuesday your focus hit 9/10 during game day — and your reflection showed exactly why: you wrote that you stayed calm under pressure in the second half. That mental composure is becoming a pattern.'",
+    "Include 3-5 strengths, each 2-3 sentences with concrete evidence"
+  ],
+
+  "areasForImprovement": [
+    "Each area must be specific and actionable, not vague. Reference what the athlete themselves identified. Example: 'You mentioned wanting to improve your first-touch accuracy on Wednesday, and your confidence dipped to 4/10 that day. These are connected — when you doubt your technique, your body tightens up. Here is what to try...'",
+    "Include 2-4 areas, each 2-3 sentences with a clear path forward"
+  ],
+
+  "mentalPatterns": "A deep 4-6 sentence analysis of their psychological trends. Look at confidence, focus, and how they handle mistakes. Do they bounce back quickly or does one bad day spiral? Are their self-reflections becoming more self-aware over time? How does their mental state differ between training and game days? Reference specific entries.",
+
+  "physicalPatterns": "A 3-5 sentence analysis of their physical performance trends. Look at effort ratings, energy levels, rest day placement, and training load. Are they overtraining? Under-recovering? Is their effort consistent or do they have energy crashes? How do rest days affect their next session's performance?",
+
+  "consistencyAnalysis": "A 3-4 sentence assessment of their discipline and routine. How many days did they log out of the ${periodLabel}? What does their activity type distribution look like (training vs game vs rest)? Is their logging consistent or sporadic? Consistency in showing up is the foundation — analyze it.",
+
+  "goalProgress": [
+    {
+      "goal": "The exact goal title",
+      "analysis": "2-3 sentences analyzing their progress toward this specific goal based on their daily entries. Reference concrete evidence from their logs.",
+      "recommendation": "1-2 specific, actionable steps they should take this coming ${periodLabel} to make progress on this goal"
+    }
+  ],
+
+  "actionableTips": [
+    "Each tip must be specific to THIS athlete and THIS ${periodLabel}'s data. Not generic advice. Example: 'Your confidence drops every time you rate your effort below 6. This ${periodLabel === 'week' ? 'next week' : 'next month'}, before every session, spend 2 minutes reviewing what you wrote in your best entry this ${periodLabel} — remind yourself what peak performance feels like for you.'",
+    "Include 3-5 tips, each 1-2 sentences"
+  ],
+
+  "motivationalMessage": "A personal, powerful closing message (3-4 sentences) that connects their ${periodLabel}'s journey to their bigger picture. Reference their best moment this ${periodLabel} and project forward. If they have a mantra, weave it in naturally. Make them feel seen and fired up for the next ${periodLabel}."
+}`;
+}
+
+function buildUserPrompt(entries, goals, sport, reportType) {
+  const periodLabel = reportType === 'weekly' ? 'week' : 'month';
+  const totalDays = entries.length;
+  const trainingDays = entries.filter(e => e.activity_type === 'training').length;
+  const gameDays = entries.filter(e => e.activity_type === 'game').length;
+  const restDays = entries.filter(e => e.activity_type === 'rest_day').length;
+
+  const avgFocus = (entries.reduce((s, e) => s + (e.focus_rating || 0), 0) / totalDays).toFixed(1);
+  const avgEffort = (entries.reduce((s, e) => s + (e.effort_rating || 0), 0) / totalDays).toFixed(1);
+  const avgConfidence = (entries.reduce((s, e) => s + (e.confidence_rating || 0), 0) / totalDays).toFixed(1);
+  const avgScore = (entries.reduce((s, e) => s + (e.performance_score || 0), 0) / totalDays).toFixed(1);
+
+  let prompt = `ATHLETE'S ${periodLabel.toUpperCase()} DATA — ${sport.toUpperCase()} PLAYER
+${'='.repeat(50)}
+
+OVERVIEW: ${totalDays} entries logged (${trainingDays} training, ${gameDays} games, ${restDays} rest days)
+AVERAGES: Focus ${avgFocus}/10 | Effort ${avgEffort}/10 | Confidence ${avgConfidence}/10 | Score ${avgScore}/10
+
+${'='.repeat(50)}
+DAY-BY-DAY BREAKDOWN:
+${'='.repeat(50)}
+`;
+
+  entries.forEach((e, i) => {
+    const date = e.entry_date instanceof Date
+      ? e.entry_date.toISOString().split('T')[0]
+      : String(e.entry_date).split('T')[0];
+
+    const dayName = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+
+    prompt += `
+--- ${dayName}, ${date} ---
+Activity: ${e.activity_type.replace('_', ' ').toUpperCase()}
+Ratings: Focus ${e.focus_rating}/10 | Effort ${e.effort_rating}/10 | Confidence ${e.confidence_rating}/10 | Score: ${e.performance_score}/10
+`;
+
+    if (e.did_well) {
+      prompt += `What went well: "${e.did_well}"\n`;
+    }
+    if (e.improve_next) {
+      prompt += `What to improve: "${e.improve_next}"\n`;
+    }
+    if (e.rotating_question_id && e.rotating_answer) {
+      const question = ROTATING_QUESTIONS[e.rotating_question_id] || `Question #${e.rotating_question_id}`;
+      prompt += `Daily question — "${question}": "${e.rotating_answer}"\n`;
+    }
   });
+
+  if (goals.length > 0) {
+    prompt += `\n${'='.repeat(50)}\nACTIVE GOALS:\n${'='.repeat(50)}\n`;
+    goals.forEach(g => {
+      prompt += `- [${g.goal_type}] ${g.title}`;
+      if (g.description) prompt += `: ${g.description}`;
+      if (g.target_value) prompt += ` (target: ${g.target_value}, current: ${g.current_value || 0})`;
+      prompt += '\n';
+    });
+  } else {
+    prompt += `\nNote: This athlete has not set any goals yet. In your goalProgress array, include one entry encouraging them to set specific goals.\n`;
+  }
+
+  prompt += `\nAnalyze this data thoroughly. Remember: this athlete is paying for premium coaching. Every word should prove you read their entries carefully and genuinely care about their development as a ${sport} athlete. Be their best coach.`;
+
+  return prompt;
 }
 
 async function generateReport(userId, reportType, periodStart, periodEnd) {
-  const existing = await query(
-    `SELECT * FROM ai_reports WHERE user_id = $1 AND report_type = $2
-     AND period_start = $3 AND period_end = $4`,
-    [userId, reportType, periodStart, periodEnd]
-  );
-  if (existing.rows.length > 0) {
-    return existing.rows[0];
-  }
-
   const userResult = await query('SELECT sport, mantra FROM users WHERE id = $1', [userId]);
   if (userResult.rows.length === 0) throw new Error('User not found');
   const { sport, mantra } = userResult.rows[0];
@@ -77,19 +164,18 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
     [userId]
   );
 
-  const userPrompt = buildUserPrompt(
-    entriesResult.rows, goalsResult.rows, sport, mantra, reportType
-  );
+  const systemPrompt = buildSystemPrompt(sport || 'general', mantra, reportType);
+  const userPrompt = buildUserPrompt(entriesResult.rows, goalsResult.rows, sport || 'general', reportType);
 
   const completion = await getClient().chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
-    temperature: 0.7,
-    max_tokens: 1500,
+    temperature: 0.75,
+    max_tokens: 4000,
   });
 
   const reportContent = JSON.parse(completion.choices[0].message.content);
