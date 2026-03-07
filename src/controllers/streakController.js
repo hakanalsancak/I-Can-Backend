@@ -1,5 +1,13 @@
 const { query } = require('../config/database');
 
+function formatDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return d.toISOString().split('T')[0];
+  const s = String(d);
+  if (s.includes('T')) return s.split('T')[0];
+  return s;
+}
+
 exports.getStreak = async (req, res, next) => {
   try {
     const result = await query(
@@ -15,7 +23,7 @@ exports.getStreak = async (req, res, next) => {
     res.json({
       currentStreak: s.current_streak,
       longestStreak: s.longest_streak,
-      lastEntryDate: s.last_entry_date,
+      lastEntryDate: formatDate(s.last_entry_date),
     });
   } catch (err) {
     next(err);

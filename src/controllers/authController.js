@@ -58,11 +58,6 @@ exports.register = async (req, res, next) => {
       'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
       [user.id]
     );
-    await query(
-      `INSERT INTO subscriptions (user_id, status, trial_start, trial_end)
-       VALUES ($1, 'trial', NOW(), NOW() + INTERVAL '30 days')`,
-      [user.id]
-    );
 
     const tokens = generateTokens(user.id);
     await storeRefreshToken(user.id, tokens.refreshToken);
@@ -138,11 +133,6 @@ exports.appleSignIn = async (req, res, next) => {
         'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
         [user.id]
       );
-      await query(
-        `INSERT INTO subscriptions (user_id, status, trial_start, trial_end)
-         VALUES ($1, 'trial', NOW(), NOW() + INTERVAL '30 days')`,
-        [user.id]
-      );
     }
 
     const user = result.rows[0];
@@ -186,11 +176,6 @@ exports.googleSignIn = async (req, res, next) => {
       const user = result.rows[0];
       await query(
         'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
-        [user.id]
-      );
-      await query(
-        `INSERT INTO subscriptions (user_id, status, trial_start, trial_end)
-         VALUES ($1, 'trial', NOW(), NOW() + INTERVAL '30 days')`,
         [user.id]
       );
     }

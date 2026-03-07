@@ -1,5 +1,13 @@
 const { query, getClient } = require('../config/database');
 
+function formatDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return d.toISOString().split('T')[0];
+  const s = String(d);
+  if (s.includes('T')) return s.split('T')[0];
+  return s;
+}
+
 exports.submitEntry = async (req, res, next) => {
   const client = await getClient();
   try {
@@ -88,7 +96,7 @@ exports.submitEntry = async (req, res, next) => {
     res.status(201).json({
       entry: {
         id: entry.id,
-        entryDate: entry.entry_date,
+        entryDate: formatDate(entry.entry_date),
         activityType: entry.activity_type,
         focusRating: entry.focus_rating,
         effortRating: entry.effort_rating,
@@ -138,7 +146,7 @@ exports.getEntries = async (req, res, next) => {
 
     const entries = result.rows.map((e) => ({
       id: e.id,
-      entryDate: e.entry_date,
+      entryDate: formatDate(e.entry_date),
       activityType: e.activity_type,
       focusRating: e.focus_rating,
       effortRating: e.effort_rating,
@@ -172,7 +180,7 @@ exports.getEntryByDate = async (req, res, next) => {
     const e = result.rows[0];
     res.json({
       id: e.id,
-      entryDate: e.entry_date,
+      entryDate: formatDate(e.entry_date),
       activityType: e.activity_type,
       focusRating: e.focus_rating,
       effortRating: e.effort_rating,
