@@ -167,17 +167,24 @@ exports.googleSignIn = async (req, res, next) => {
     let result = await query('SELECT * FROM users WHERE google_id = $1', [googleId]);
 
     if (result.rows.length === 0) {
-      result = await query(
-        `INSERT INTO users (google_id, email, full_name)
-         VALUES ($1, $2, $3) RETURNING *`,
-        [googleId, email, fullName]
-      );
+      result = await query('SELECT * FROM users WHERE email = $1', [email]);
 
-      const user = result.rows[0];
-      await query(
-        'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
-        [user.id]
-      );
+      if (result.rows.length > 0) {
+        await query('UPDATE users SET google_id = $1 WHERE id = $2', [googleId, result.rows[0].id]);
+        result = await query('SELECT * FROM users WHERE id = $1', [result.rows[0].id]);
+      } else {
+        result = await query(
+          `INSERT INTO users (google_id, email, full_name)
+           VALUES ($1, $2, $3) RETURNING *`,
+          [googleId, email, fullName]
+        );
+
+        const user = result.rows[0];
+        await query(
+          'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
+          [user.id]
+        );
+      }
     }
 
     const user = result.rows[0];
