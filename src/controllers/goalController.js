@@ -1,5 +1,20 @@
 const { query } = require('../config/database');
 
+function formatGoal(g) {
+  return {
+    id: g.id,
+    goalType: g.goal_type,
+    title: g.title,
+    description: g.description,
+    targetValue: g.target_value,
+    currentValue: g.current_value,
+    isCompleted: g.is_completed,
+    startDate: g.start_date,
+    endDate: g.end_date,
+    createdAt: g.created_at,
+  };
+}
+
 exports.getGoals = async (req, res, next) => {
   try {
     const { type } = req.query;
@@ -11,22 +26,10 @@ exports.getGoals = async (req, res, next) => {
       params.push(type);
     }
 
-    sql += ' ORDER BY created_at DESC';
+    sql += ' ORDER BY is_completed ASC, created_at DESC';
     const result = await query(sql, params);
 
-    const goals = result.rows.map((g) => ({
-      id: g.id,
-      goalType: g.goal_type,
-      title: g.title,
-      description: g.description,
-      targetValue: g.target_value,
-      currentValue: g.current_value,
-      isCompleted: g.is_completed,
-      startDate: g.start_date,
-      endDate: g.end_date,
-      createdAt: g.created_at,
-    }));
-
+    const goals = result.rows.map(formatGoal);
     res.json({ goals });
   } catch (err) {
     next(err);
@@ -46,18 +49,7 @@ exports.createGoal = async (req, res, next) => {
       [req.userId, goalType, title, description || null, targetValue || null, startDate || null, endDate || null]
     );
 
-    const g = result.rows[0];
-    res.status(201).json({
-      id: g.id,
-      goalType: g.goal_type,
-      title: g.title,
-      description: g.description,
-      targetValue: g.target_value,
-      currentValue: g.current_value,
-      isCompleted: g.is_completed,
-      startDate: g.start_date,
-      endDate: g.end_date,
-    });
+    res.status(201).json(formatGoal(result.rows[0]));
   } catch (err) {
     next(err);
   }
@@ -84,18 +76,7 @@ exports.updateGoal = async (req, res, next) => {
       return res.status(404).json({ error: 'Goal not found' });
     }
 
-    const g = result.rows[0];
-    res.json({
-      id: g.id,
-      goalType: g.goal_type,
-      title: g.title,
-      description: g.description,
-      targetValue: g.target_value,
-      currentValue: g.current_value,
-      isCompleted: g.is_completed,
-      startDate: g.start_date,
-      endDate: g.end_date,
-    });
+    res.json(formatGoal(result.rows[0]));
   } catch (err) {
     next(err);
   }

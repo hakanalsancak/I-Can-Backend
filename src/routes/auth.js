@@ -11,5 +11,6 @@ router.post('/google', authLimiter, authController.googleSignIn);
 router.post('/refresh', authLimiter, authController.refreshToken);
 router.put('/onboarding', authenticate, authController.completeOnboarding);
 router.get('/profile', authenticate, authController.getProfile);
+router.put('/profile', authenticate, authController.updateProfile);
 
 module.exports = router;

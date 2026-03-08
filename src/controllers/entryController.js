@@ -1,4 +1,5 @@
 const { query, getClient } = require('../config/database');
+const { getClient: getOpenAI } = require('../config/openai');
 
 function formatDate(d) {
   if (!d) return null;
@@ -6,6 +7,24 @@ function formatDate(d) {
   const s = String(d);
   if (s.includes('T')) return s.split('T')[0];
   return s;
+}
+
+function formatEntry(e) {
+  return {
+    id: e.id,
+    entryDate: formatDate(e.entry_date),
+    activityType: e.activity_type,
+    focusRating: e.focus_rating,
+    effortRating: e.effort_rating,
+    confidenceRating: e.confidence_rating,
+    performanceScore: e.performance_score,
+    didWell: e.did_well,
+    improveNext: e.improve_next,
+    rotatingQuestionId: e.rotating_question_id,
+    rotatingAnswer: e.rotating_answer,
+    responses: e.responses || null,
+    createdAt: e.created_at,
+  };
 }
 
 exports.submitEntry = async (req, res, next) => {
@@ -16,7 +35,7 @@ exports.submitEntry = async (req, res, next) => {
     const {
       entryDate, activityType, focusRating, effortRating,
       confidenceRating, didWell, improveNext,
-      rotatingQuestionId, rotatingAnswer,
+      rotatingQuestionId, rotatingAnswer, responses,
     } = req.body;
 
     if (!entryDate || !activityType) {
@@ -29,8 +48,8 @@ exports.submitEntry = async (req, res, next) => {
       `INSERT INTO daily_entries
        (user_id, entry_date, activity_type, focus_rating, effort_rating,
         confidence_rating, performance_score, did_well, improve_next,
-        rotating_question_id, rotating_answer)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        rotating_question_id, rotating_answer, responses)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (user_id, entry_date) DO UPDATE SET
          activity_type = EXCLUDED.activity_type,
          focus_rating = EXCLUDED.focus_rating,
@@ -40,12 +59,14 @@ exports.submitEntry = async (req, res, next) => {
          did_well = EXCLUDED.did_well,
          improve_next = EXCLUDED.improve_next,
          rotating_question_id = EXCLUDED.rotating_question_id,
-         rotating_answer = EXCLUDED.rotating_answer
+         rotating_answer = EXCLUDED.rotating_answer,
+         responses = EXCLUDED.responses
        RETURNING *`,
       [
         req.userId, entryDate, activityType, focusRating, effortRating,
         confidenceRating, performanceScore, didWell || null, improveNext || null,
         rotatingQuestionId || null, rotatingAnswer || null,
+        responses ? JSON.stringify(responses) : null,
       ]
     );
 
@@ -92,21 +113,8 @@ exports.submitEntry = async (req, res, next) => {
 
     await client.query('COMMIT');
 
-    const entry = entryResult.rows[0];
     res.status(201).json({
-      entry: {
-        id: entry.id,
-        entryDate: formatDate(entry.entry_date),
-        activityType: entry.activity_type,
-        focusRating: entry.focus_rating,
-        effortRating: entry.effort_rating,
-        confidenceRating: entry.confidence_rating,
-        performanceScore: entry.performance_score,
-        didWell: entry.did_well,
-        improveNext: entry.improve_next,
-        rotatingQuestionId: entry.rotating_question_id,
-        rotatingAnswer: entry.rotating_answer,
-      },
+      entry: formatEntry(entryResult.rows[0]),
       streak: {
         currentStreak: streak.current_streak,
         longestStreak: streak.longest_streak,
@@ -143,23 +151,7 @@ exports.getEntries = async (req, res, next) => {
     params.push(parseInt(limit), parseInt(offset));
 
     const result = await query(sql, params);
-
-    const entries = result.rows.map((e) => ({
-      id: e.id,
-      entryDate: formatDate(e.entry_date),
-      activityType: e.activity_type,
-      focusRating: e.focus_rating,
-      effortRating: e.effort_rating,
-      confidenceRating: e.confidence_rating,
-      performanceScore: e.performance_score,
-      didWell: e.did_well,
-      improveNext: e.improve_next,
-      rotatingQuestionId: e.rotating_question_id,
-      rotatingAnswer: e.rotating_answer,
-      createdAt: e.created_at,
-    }));
-
-    res.json({ entries });
+    res.json({ entries: result.rows.map(formatEntry) });
   } catch (err) {
     next(err);
   }
@@ -177,22 +169,78 @@ exports.getEntryByDate = async (req, res, next) => {
       return res.status(404).json({ error: 'No entry found for this date' });
     }
 
-    const e = result.rows[0];
-    res.json({
-      id: e.id,
-      entryDate: formatDate(e.entry_date),
-      activityType: e.activity_type,
-      focusRating: e.focus_rating,
-      effortRating: e.effort_rating,
-      confidenceRating: e.confidence_rating,
-      performanceScore: e.performance_score,
-      didWell: e.did_well,
-      improveNext: e.improve_next,
-      rotatingQuestionId: e.rotating_question_id,
-      rotatingAnswer: e.rotating_answer,
-      createdAt: e.created_at,
-    });
+    res.json(formatEntry(result.rows[0]));
   } catch (err) {
     next(err);
+  }
+};
+
+exports.generateInsight = async (req, res, next) => {
+  try {
+    const {
+      activityType, focus, effort, trainingAreas,
+      reflectionPositive, reflectionImprove,
+      dailyQuestion, dailyAnswer,
+      preGameFeeling, overallPerformance, strongestAreas,
+      recoveryQuality, restActivities, discipline, recoveryReflection,
+    } = req.body;
+
+    if (!activityType) {
+      return res.status(400).json({ error: 'Activity type is required' });
+    }
+
+    let logSummary = `Activity: ${activityType}\n`;
+
+    if (activityType === 'Training') {
+      if (focus) logSummary += `Focus: ${focus}\n`;
+      if (effort) logSummary += `Effort: ${effort}\n`;
+      if (trainingAreas && trainingAreas.length) logSummary += `Worked on: ${trainingAreas.join(', ')}\n`;
+    } else if (activityType === 'Game') {
+      if (preGameFeeling) logSummary += `Pre-game feeling: ${preGameFeeling}\n`;
+      if (overallPerformance) logSummary += `Overall performance: ${overallPerformance}\n`;
+      if (strongestAreas && strongestAreas.length) logSummary += `Strongest areas: ${strongestAreas.join(', ')}\n`;
+    } else if (activityType === 'Rest Day') {
+      if (recoveryQuality) logSummary += `Recovery quality: ${recoveryQuality}\n`;
+      if (restActivities && restActivities.length) logSummary += `Activities: ${restActivities.join(', ')}\n`;
+      if (discipline) logSummary += `Discipline: ${discipline}\n`;
+    }
+
+    if (reflectionPositive) logSummary += `What went well: ${reflectionPositive}\n`;
+    if (reflectionImprove) logSummary += `What to improve: ${reflectionImprove}\n`;
+    if (dailyQuestion && dailyAnswer) logSummary += `${dailyQuestion}: ${dailyAnswer}\n`;
+    if (recoveryReflection) logSummary += `Recovery reflection: ${recoveryReflection}\n`;
+
+    const systemPrompt = `You are an elite sports performance coach helping athletes improve their mindset, focus, and discipline.
+
+Generate a short coaching insight based strictly on the athlete's log.
+
+Rules:
+- Reference the athlete's answers directly.
+- Never invent information that is not in the log.
+- Highlight one positive behavior.
+- Suggest one improvement if possible.
+- Write like a real coach speaking to an athlete.
+- Keep the response between 20 and 40 words.
+- Maximum 3 sentences.
+- Be motivational but realistic.
+- Do NOT use quotation marks around your response.
+- Respond with only the coaching insight, nothing else.`;
+
+    const openai = getOpenAI();
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Here is the athlete's daily log:\n\n${logSummary}` },
+      ],
+      max_tokens: 100,
+      temperature: 0.7,
+    });
+
+    const insight = completion.choices[0]?.message?.content?.trim() || '';
+    res.json({ insight });
+  } catch (err) {
+    console.error('Insight generation error:', err.message);
+    res.json({ insight: '' });
   }
 };

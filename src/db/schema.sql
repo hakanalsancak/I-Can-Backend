@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name VARCHAR(100),
     apple_id VARCHAR(255) UNIQUE,
     google_id VARCHAR(255) UNIQUE,
+    age INT,
     sport VARCHAR(50) NOT NULL DEFAULT 'soccer',
     mantra TEXT,
     notification_frequency INT DEFAULT 1,
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS daily_entries (
     improve_next TEXT,
     rotating_question_id SMALLINT,
     rotating_answer TEXT,
+    responses JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, entry_date)
 );

@@ -107,12 +107,35 @@ ${'='.repeat(50)}
       : String(e.entry_date).split('T')[0];
 
     const dayName = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+    const r = e.responses || {};
 
-    prompt += `
---- ${dayName}, ${date} ---
-Activity: ${e.activity_type.replace('_', ' ').toUpperCase()}
-Ratings: Focus ${e.focus_rating}/10 | Effort ${e.effort_rating}/10 | Confidence ${e.confidence_rating}/10 | Score: ${e.performance_score}/10
-`;
+    prompt += `\n--- ${dayName}, ${date} ---\n`;
+    prompt += `Activity: ${e.activity_type.replace('_', ' ').toUpperCase()}\n`;
+
+    if (e.activity_type === 'training') {
+      const focusLabel = r.focusLabel || `${e.focus_rating}/10`;
+      const effortLabel = r.effortLabel || `${e.effort_rating}/10`;
+      prompt += `Focus: ${focusLabel} (${e.focus_rating}/10) | Effort: ${effortLabel} (${e.effort_rating}/10) | Score: ${e.performance_score}/10\n`;
+      if (r.workedOn && r.workedOn.length > 0) {
+        prompt += `Worked on: ${r.workedOn.join(', ')}\n`;
+      }
+    } else if (e.activity_type === 'game') {
+      const feeling = r.preGameFeeling || `Confidence ${e.confidence_rating}/10`;
+      const performance = r.overallPerformance || `${e.focus_rating}/10`;
+      prompt += `Pre-game mindset: ${feeling} | Overall performance: ${performance} | Score: ${e.performance_score}/10\n`;
+      if (r.strongestAreas && r.strongestAreas.length > 0) {
+        prompt += `Strongest areas: ${r.strongestAreas.join(', ')}\n`;
+      }
+    } else if (e.activity_type === 'rest_day') {
+      const recovery = r.recoveryQuality || `${e.focus_rating}/10`;
+      const discipline = r.discipline || `${e.effort_rating}/10`;
+      prompt += `Recovery quality: ${recovery} | Discipline: ${discipline} | Score: ${e.performance_score}/10\n`;
+      if (r.restActivities && r.restActivities.length > 0) {
+        prompt += `Activities: ${r.restActivities.join(', ')}\n`;
+      }
+    } else {
+      prompt += `Ratings: Focus ${e.focus_rating}/10 | Effort ${e.effort_rating}/10 | Confidence ${e.confidence_rating}/10 | Score: ${e.performance_score}/10\n`;
+    }
 
     if (e.did_well) {
       prompt += `What went well: "${e.did_well}"\n`;
@@ -120,7 +143,12 @@ Ratings: Focus ${e.focus_rating}/10 | Effort ${e.effort_rating}/10 | Confidence 
     if (e.improve_next) {
       prompt += `What to improve: "${e.improve_next}"\n`;
     }
-    if (e.rotating_question_id && e.rotating_answer) {
+    if (r.recoveryReflection) {
+      prompt += `Recovery reflection: "${r.recoveryReflection}"\n`;
+    }
+    if (r.rotatingQ && r.rotatingA) {
+      prompt += `"${r.rotatingQ}": "${r.rotatingA}"\n`;
+    } else if (e.rotating_question_id && e.rotating_answer) {
       const question = ROTATING_QUESTIONS[e.rotating_question_id] || `Question #${e.rotating_question_id}`;
       prompt += `Daily question — "${question}": "${e.rotating_answer}"\n`;
     }

@@ -6,6 +6,7 @@ const entryController = require('../controllers/entryController');
 router.use(authenticate);
 
 router.post('/', entryController.submitEntry);
+router.post('/insight', entryController.generateInsight);
 router.get('/', entryController.getEntries);
 router.get('/:date', entryController.getEntryByDate);
 
