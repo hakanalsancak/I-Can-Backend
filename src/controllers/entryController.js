@@ -42,7 +42,7 @@ exports.submitEntry = async (req, res, next) => {
       return res.status(400).json({ error: 'Entry date and activity type are required' });
     }
 
-    const performanceScore = Math.round((focusRating + effortRating + confidenceRating) / 3);
+    const performanceScore = Math.round(((focusRating + effortRating + confidenceRating) / 3) * 10);
 
     const entryResult = await client.query(
       `INSERT INTO daily_entries
