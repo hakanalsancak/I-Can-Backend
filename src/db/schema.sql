@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS daily_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     entry_date DATE NOT NULL,
-    activity_type VARCHAR(20) NOT NULL CHECK (activity_type IN ('training', 'game', 'rest_day')),
+    activity_type VARCHAR(20) NOT NULL CHECK (activity_type IN ('training', 'game', 'rest_day', 'other')),
     focus_rating SMALLINT CHECK (focus_rating BETWEEN 1 AND 10),
     effort_rating SMALLINT CHECK (effort_rating BETWEEN 1 AND 10),
     confidence_rating SMALLINT CHECK (confidence_rating BETWEEN 1 AND 10),
