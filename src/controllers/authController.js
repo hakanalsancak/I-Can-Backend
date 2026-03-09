@@ -28,6 +28,7 @@ async function createUserResponse(user, tokens) {
       sport: user.sport,
       mantra: user.mantra,
       notificationFrequency: user.notification_frequency,
+      country: user.country,
       onboardingCompleted: user.onboarding_completed,
     },
     accessToken: tokens.accessToken,
@@ -235,7 +236,7 @@ exports.refreshToken = async (req, res, next) => {
 
 exports.completeOnboarding = async (req, res, next) => {
   try {
-    const { sport, mantra, notificationFrequency, fullName, age } = req.body;
+    const { sport, mantra, notificationFrequency, fullName, age, country } = req.body;
     if (!sport) {
       return res.status(400).json({ error: 'Sport is required' });
     }
@@ -243,9 +244,10 @@ exports.completeOnboarding = async (req, res, next) => {
     const result = await query(
       `UPDATE users SET sport = $1, mantra = $2, notification_frequency = $3,
        full_name = COALESCE($5, full_name), age = COALESCE($6, age),
+       country = COALESCE($7, country),
        onboarding_completed = TRUE, updated_at = NOW()
        WHERE id = $4 RETURNING *`,
-      [sport, mantra || null, notificationFrequency || 1, req.userId, fullName || null, age || null]
+      [sport, mantra || null, notificationFrequency || 1, req.userId, fullName || null, age || null, country || null]
     );
 
     if (result.rows.length === 0) {
@@ -258,6 +260,7 @@ exports.completeOnboarding = async (req, res, next) => {
       email: user.email,
       fullName: user.full_name,
       age: user.age,
+      country: user.country,
       sport: user.sport,
       mantra: user.mantra,
       notificationFrequency: user.notification_frequency,
@@ -281,6 +284,7 @@ exports.getProfile = async (req, res, next) => {
       email: user.email,
       fullName: user.full_name,
       age: user.age,
+      country: user.country,
       sport: user.sport,
       mantra: user.mantra,
       notificationFrequency: user.notification_frequency,
@@ -294,16 +298,17 @@ exports.getProfile = async (req, res, next) => {
 
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { mantra, fullName, age } = req.body;
+    const { mantra, fullName, age, country } = req.body;
 
     const result = await query(
       `UPDATE users SET
        mantra = COALESCE($1, mantra),
        full_name = COALESCE($2, full_name),
        age = COALESCE($3, age),
+       country = COALESCE($5, country),
        updated_at = NOW()
        WHERE id = $4 RETURNING *`,
-      [mantra !== undefined ? (mantra || null) : undefined, fullName || null, age || null, req.userId]
+      [mantra !== undefined ? (mantra || null) : undefined, fullName || null, age || null, req.userId, country || null]
     );
 
     if (result.rows.length === 0) {
@@ -316,6 +321,7 @@ exports.updateProfile = async (req, res, next) => {
       email: user.email,
       fullName: user.full_name,
       age: user.age,
+      country: user.country,
       sport: user.sport,
       mantra: user.mantra,
       notificationFrequency: user.notification_frequency,

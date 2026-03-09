@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     apple_id VARCHAR(255) UNIQUE,
     google_id VARCHAR(255) UNIQUE,
     age INT,
+    country VARCHAR(10),
     sport VARCHAR(50) NOT NULL DEFAULT 'soccer',
     mantra TEXT,
     notification_frequency INT DEFAULT 1,
