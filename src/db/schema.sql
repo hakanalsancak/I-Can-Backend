@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS ai_reports (
     period_start DATE NOT NULL,
     period_end DATE NOT NULL,
     report_content JSONB NOT NULL,
+    entry_count INT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_reports_user_type ON ai_reports(user_id, report_type, period_start DESC);

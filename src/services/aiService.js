@@ -15,7 +15,8 @@ const ROTATING_QUESTIONS = {
 };
 
 function buildSystemPrompt(sport, mantra, reportType) {
-  const periodLabel = reportType === 'weekly' ? 'week' : 'month';
+  const periodLabels = { weekly: 'week', monthly: 'month', yearly: 'year' };
+  const periodLabel = periodLabels[reportType] || 'period';
 
   return `You are an elite sports performance coach — the kind of coach that professional ${sport} athletes pay thousands of dollars to work with. You combine deep expertise in sport psychology, physical performance science, and mental conditioning.
 
@@ -79,11 +80,13 @@ RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structu
 }
 
 function buildUserPrompt(entries, goals, sport, reportType) {
-  const periodLabel = reportType === 'weekly' ? 'week' : 'month';
+  const periodLabels = { weekly: 'week', monthly: 'month', yearly: 'year' };
+  const periodLabel = periodLabels[reportType] || 'period';
   const totalDays = entries.length;
   const trainingDays = entries.filter(e => e.activity_type === 'training').length;
   const gameDays = entries.filter(e => e.activity_type === 'game').length;
   const restDays = entries.filter(e => e.activity_type === 'rest_day').length;
+  const otherDays = entries.filter(e => e.activity_type === 'other').length;
 
   const avgFocus = (entries.reduce((s, e) => s + (e.focus_rating || 0), 0) / totalDays).toFixed(1);
   const avgEffort = (entries.reduce((s, e) => s + (e.effort_rating || 0), 0) / totalDays).toFixed(1);
@@ -93,7 +96,7 @@ function buildUserPrompt(entries, goals, sport, reportType) {
   let prompt = `ATHLETE'S ${periodLabel.toUpperCase()} DATA — ${sport.toUpperCase()} PLAYER
 ${'='.repeat(50)}
 
-OVERVIEW: ${totalDays} entries logged (${trainingDays} training, ${gameDays} games, ${restDays} rest days)
+OVERVIEW: ${totalDays} entries logged (${trainingDays} training, ${gameDays} games, ${restDays} rest days${otherDays > 0 ? `, ${otherDays} other` : ''})
 AVERAGES: Focus ${avgFocus}/10 | Effort ${avgEffort}/10 | Confidence ${avgConfidence}/10 | Score ${avgScore}/10
 
 ${'='.repeat(50)}
@@ -132,6 +135,15 @@ ${'='.repeat(50)}
       prompt += `Recovery quality: ${recovery} | Discipline: ${discipline} | Score: ${e.performance_score}/10\n`;
       if (r.restActivities && r.restActivities.length > 0) {
         prompt += `Activities: ${r.restActivities.join(', ')}\n`;
+      }
+    } else if (e.activity_type === 'other') {
+      const feeling = r.otherFeeling || `${e.focus_rating}/10`;
+      prompt += `Overall feeling: ${feeling} | Score: ${e.performance_score}/10\n`;
+      if (r.otherActivities && r.otherActivities.length > 0) {
+        prompt += `Activities: ${r.otherActivities.join(', ')}\n`;
+      }
+      if (r.otherDescription) {
+        prompt += `Description: "${r.otherDescription}"\n`;
       }
     } else {
       prompt += `Ratings: Focus ${e.focus_rating}/10 | Effort ${e.effort_rating}/10 | Confidence ${e.confidence_rating}/10 | Score: ${e.performance_score}/10\n`;
@@ -195,6 +207,9 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
   const systemPrompt = buildSystemPrompt(sport || 'general', mantra, reportType);
   const userPrompt = buildUserPrompt(entriesResult.rows, goalsResult.rows, sport || 'general', reportType);
 
+  const tokenLimits = { weekly: 4000, monthly: 5000, yearly: 6000 };
+  const maxTokens = tokenLimits[reportType] || 4000;
+
   const completion = await getClient().chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
@@ -203,15 +218,15 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
     ],
     response_format: { type: 'json_object' },
     temperature: 0.75,
-    max_tokens: 4000,
+    max_tokens: maxTokens,
   });
 
   const reportContent = JSON.parse(completion.choices[0].message.content);
 
   const result = await query(
-    `INSERT INTO ai_reports (user_id, report_type, period_start, period_end, report_content)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [userId, reportType, periodStart, periodEnd, JSON.stringify(reportContent)]
+    `INSERT INTO ai_reports (user_id, report_type, period_start, period_end, report_content, entry_count)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [userId, reportType, periodStart, periodEnd, JSON.stringify(reportContent), entriesResult.rows.length]
   );
 
   return result.rows[0];

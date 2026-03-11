@@ -2,6 +2,13 @@ const { query } = require('../config/database');
 
 exports.getStatus = async (req, res, next) => {
   try {
+    const userResult = await query('SELECT email FROM users WHERE id = $1', [req.userId]);
+    const email = userResult.rows.length > 0 ? (userResult.rows[0].email || '') : '';
+    const isGuest = email.startsWith('guest_') && email.endsWith('@ican.app');
+    if (isGuest) {
+      return res.json({ status: 'none', isPremium: false });
+    }
+
     const result = await query(
       'SELECT * FROM subscriptions WHERE user_id = $1',
       [req.userId]
@@ -40,10 +47,26 @@ exports.verifyReceipt = async (req, res, next) => {
       return res.status(400).json({ error: 'Transaction ID and product ID are required' });
     }
 
+    const userResult = await query('SELECT email FROM users WHERE id = $1', [req.userId]);
+    if (userResult.rows.length > 0) {
+      const email = userResult.rows[0].email || '';
+      if (email.startsWith('guest_') && email.endsWith('@ican.app')) {
+        return res.status(403).json({
+          error: 'Create an account or sign in to subscribe. Guest accounts cannot store subscriptions.',
+          code: 'GUEST_ACCOUNT',
+        });
+      }
+    }
+
     // In production, verify the JWS signed transaction with Apple's servers.
     // For now, trust the client and store the subscription.
     const periodEnd = new Date();
-    periodEnd.setMonth(periodEnd.getMonth() + 1);
+    const isYearly = productId && productId.includes('yearly');
+    if (isYearly) {
+      periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+    } else {
+      periodEnd.setMonth(periodEnd.getMonth() + 1);
+    }
 
     const result = await query(
       `INSERT INTO subscriptions (user_id, apple_transaction_id, product_id, status,

@@ -1,5 +1,4 @@
 const { query } = require('../config/database');
-const { generateReport } = require('../services/aiService');
 const { checkPremiumAccess } = require('../services/subscriptionService');
 
 function formatDate(d) {
@@ -10,19 +9,128 @@ function formatDate(d) {
   return s;
 }
 
+function getCurrentWeekBounds() {
+  const now = new Date();
+  const day = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    start: monday.toISOString().split('T')[0],
+    end: sunday.toISOString().split('T')[0],
+    daysRemaining: Math.max(0, Math.ceil((sunday - now) / 86400000)),
+  };
+}
+
+function getCurrentMonthBounds() {
+  const now = new Date();
+  const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    start,
+    end: lastDay.toISOString().split('T')[0],
+    daysRemaining: Math.max(0, lastDay.getDate() - now.getDate()),
+  };
+}
+
+function getCurrentYearBounds() {
+  const now = new Date();
+  const start = `${now.getFullYear()}-01-01`;
+  const end = `${now.getFullYear()}-12-31`;
+  const endDate = new Date(now.getFullYear(), 11, 31);
+  return {
+    start,
+    end,
+    daysRemaining: Math.max(0, Math.ceil((endDate - now) / 86400000)),
+  };
+}
+
+exports.getStatus = async (req, res, next) => {
+  try {
+    const userId = req.userId;
+
+    const week = getCurrentWeekBounds();
+    const month = getCurrentMonthBounds();
+    const year = getCurrentYearBounds();
+
+    const [weekEntries, monthEntries, yearEntries, weekReport, monthReport, yearReport] = await Promise.all([
+      query(
+        'SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3',
+        [userId, week.start, week.end]
+      ),
+      query(
+        'SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3',
+        [userId, month.start, month.end]
+      ),
+      query(
+        'SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3',
+        [userId, year.start, year.end]
+      ),
+      query(
+        'SELECT id FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND period_start = $3 AND period_end = $4 LIMIT 1',
+        [userId, 'weekly', week.start, week.end]
+      ),
+      query(
+        'SELECT id FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND period_start = $3 AND period_end = $4 LIMIT 1',
+        [userId, 'monthly', month.start, month.end]
+      ),
+      query(
+        'SELECT id FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND period_start = $3 AND period_end = $4 LIMIT 1',
+        [userId, 'yearly', year.start, year.end]
+      ),
+    ]);
+
+    res.json({
+      weekly: {
+        periodStart: week.start,
+        periodEnd: week.end,
+        entryCount: parseInt(weekEntries.rows[0].cnt),
+        requiredEntries: 3,
+        daysRemaining: week.daysRemaining,
+        reportReady: weekReport.rows.length > 0,
+        reportId: weekReport.rows[0]?.id || null,
+      },
+      monthly: {
+        periodStart: month.start,
+        periodEnd: month.end,
+        entryCount: parseInt(monthEntries.rows[0].cnt),
+        requiredEntries: 10,
+        daysRemaining: month.daysRemaining,
+        reportReady: monthReport.rows.length > 0,
+        reportId: monthReport.rows[0]?.id || null,
+      },
+      yearly: {
+        periodStart: year.start,
+        periodEnd: year.end,
+        entryCount: parseInt(yearEntries.rows[0].cnt),
+        requiredEntries: 50,
+        daysRemaining: year.daysRemaining,
+        reportReady: yearReport.rows.length > 0,
+        reportId: yearReport.rows[0]?.id || null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.getReports = async (req, res, next) => {
   try {
-    let sql = 'SELECT id, report_type, period_start, period_end, created_at FROM ai_reports WHERE user_id = $1';
-    const params = [req.userId];
-
-    sql += ' ORDER BY created_at DESC LIMIT 50';
-    const result = await query(sql, params);
+    const result = await query(
+      `SELECT id, report_type, period_start, period_end, entry_count, created_at
+       FROM ai_reports WHERE user_id = $1
+       ORDER BY period_end DESC, created_at DESC LIMIT 50`,
+      [req.userId]
+    );
 
     const reports = result.rows.map((r) => ({
       id: r.id,
       reportType: r.report_type,
       periodStart: formatDate(r.period_start),
       periodEnd: formatDate(r.period_end),
+      entryCount: r.entry_count,
       createdAt: r.created_at,
     }));
 
@@ -55,161 +163,8 @@ exports.getReportById = async (req, res, next) => {
       periodStart: formatDate(r.period_start),
       periodEnd: formatDate(r.period_end),
       content: r.report_content,
+      entryCount: r.entry_count,
       createdAt: r.created_at,
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.generateReport = async (req, res, next) => {
-  try {
-    const isPremium = await checkPremiumAccess(req.userId);
-    if (!isPremium) {
-      return res.status(403).json({ error: 'Premium subscription required', code: 'PREMIUM_REQUIRED' });
-    }
-
-    const { reportType } = req.body;
-    if (!reportType || !['weekly', 'monthly'].includes(reportType)) {
-      return res.status(400).json({ error: 'Report type must be weekly or monthly' });
-    }
-
-    const now = new Date();
-    let periodStart, periodEnd;
-
-    if (reportType === 'weekly') {
-      const day = now.getDay();
-      const monday = new Date(now);
-      monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-      monday.setHours(0, 0, 0, 0);
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      periodStart = monday.toISOString().split('T')[0];
-      periodEnd = sunday.toISOString().split('T')[0];
-    } else {
-      periodStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      periodEnd = lastDay.toISOString().split('T')[0];
-    }
-
-    const existing = await query(
-      `SELECT * FROM ai_reports WHERE user_id = $1 AND report_type = $2
-       AND period_start = $3 AND period_end = $4`,
-      [req.userId, reportType, periodStart, periodEnd]
-    );
-    if (existing.rows.length > 0) {
-      const r = existing.rows[0];
-      return res.json({
-        id: r.id,
-        reportType: r.report_type,
-        periodStart: formatDate(r.period_start),
-        periodEnd: formatDate(r.period_end),
-        content: r.report_content,
-        createdAt: r.created_at,
-        alreadyExists: true,
-      });
-    }
-
-    const minEntries = reportType === 'weekly' ? 3 : 5;
-    const entriesCount = await query(
-      `SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1
-       AND entry_date >= $2 AND entry_date <= $3`,
-      [req.userId, periodStart, periodEnd]
-    );
-    const count = parseInt(entriesCount.rows[0].cnt);
-    if (count < minEntries) {
-      return res.status(400).json({
-        error: `You need at least ${minEntries} entries this ${reportType === 'weekly' ? 'week' : 'month'} to generate a report. You have ${count} so far.`,
-        code: 'INSUFFICIENT_ENTRIES',
-        required: minEntries,
-        current: count,
-      });
-    }
-
-    const report = await generateReport(req.userId, reportType, periodStart, periodEnd);
-
-    res.json({
-      id: report.id,
-      reportType: report.report_type,
-      periodStart: formatDate(report.period_start),
-      periodEnd: formatDate(report.period_end),
-      content: report.report_content,
-      createdAt: report.created_at,
-    });
-  } catch (err) {
-    if (err.message === 'No entries found for this period') {
-      return res.status(400).json({ error: err.message, code: 'INSUFFICIENT_ENTRIES' });
-    }
-    next(err);
-  }
-};
-
-exports.checkCanGenerate = async (req, res, next) => {
-  try {
-    const { reportType } = req.query;
-    if (!reportType || !['weekly', 'monthly'].includes(reportType)) {
-      return res.json({ canGenerate: false, reason: 'Invalid report type' });
-    }
-
-    const now = new Date();
-    let periodStart, periodEnd, periodLabel;
-
-    if (reportType === 'weekly') {
-      const day = now.getDay();
-      const monday = new Date(now);
-      monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-      monday.setHours(0, 0, 0, 0);
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      periodStart = monday.toISOString().split('T')[0];
-      periodEnd = sunday.toISOString().split('T')[0];
-      periodLabel = 'week';
-    } else {
-      periodStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      periodEnd = lastDay.toISOString().split('T')[0];
-      periodLabel = 'month';
-    }
-
-    const existing = await query(
-      `SELECT id FROM ai_reports WHERE user_id = $1 AND report_type = $2
-       AND period_start = $3 AND period_end = $4`,
-      [req.userId, reportType, periodStart, periodEnd]
-    );
-
-    if (existing.rows.length > 0) {
-      return res.json({
-        canGenerate: false,
-        reason: `You already generated a ${reportType} report for this ${periodLabel}`,
-        periodStart: formatDate(periodStart),
-        periodEnd: formatDate(periodEnd),
-      });
-    }
-
-    const minEntries = reportType === 'weekly' ? 3 : 5;
-    const entriesCount = await query(
-      `SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1
-       AND entry_date >= $2 AND entry_date <= $3`,
-      [req.userId, periodStart, periodEnd]
-    );
-    const count = parseInt(entriesCount.rows[0].cnt);
-
-    if (count < minEntries) {
-      return res.json({
-        canGenerate: false,
-        reason: `Need ${minEntries - count} more entries this ${periodLabel}`,
-        required: minEntries,
-        current: count,
-        periodStart: formatDate(periodStart),
-        periodEnd: formatDate(periodEnd),
-      });
-    }
-
-    res.json({
-      canGenerate: true,
-      periodStart: formatDate(periodStart),
-      periodEnd: formatDate(periodEnd),
-      entryCount: count,
     });
   } catch (err) {
     next(err);
