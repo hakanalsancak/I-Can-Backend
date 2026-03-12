@@ -12,5 +12,6 @@ router.post('/refresh', authLimiter, authController.refreshToken);
 router.put('/onboarding', authenticate, authController.completeOnboarding);
 router.get('/profile', authenticate, authController.getProfile);
 router.put('/profile', authenticate, authController.updateProfile);
+router.delete('/account', authenticate, authController.deleteAccount);
 
 module.exports = router;

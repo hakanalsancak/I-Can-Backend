@@ -303,7 +303,7 @@ exports.getProfile = async (req, res, next) => {
 
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username } = req.body;
+    const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username, sport } = req.body;
 
     if (username !== undefined) {
       const existing = await query('SELECT id FROM users WHERE username = $1 AND id != $2', [username.toLowerCase(), req.userId]);
@@ -324,11 +324,13 @@ exports.updateProfile = async (req, res, next) => {
        position = COALESCE($9, position),
        primary_goal = COALESCE($10, primary_goal),
        username = COALESCE($11, username),
+       sport = COALESCE($12, sport),
        updated_at = NOW()
        WHERE id = $4 RETURNING *`,
       [mantra !== undefined ? (mantra || null) : undefined, fullName || null, age || null, req.userId, country || null,
        gender || null, team || null, competitionLevel || null, position || null, primaryGoal || null,
-       username !== undefined ? (username ? username.toLowerCase() : null) : undefined]
+       username !== undefined ? (username ? username.toLowerCase() : null) : undefined,
+       sport || null]
     );
 
     if (result.rows.length === 0) {
@@ -336,6 +338,37 @@ exports.updateProfile = async (req, res, next) => {
     }
 
     res.json(formatUserFields(result.rows[0]));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteAccount = async (req, res, next) => {
+  try {
+    const { username } = req.body;
+    if (!username) {
+      return res.status(400).json({ error: 'Username confirmation required' });
+    }
+
+    const user = await query('SELECT username FROM users WHERE id = $1', [req.userId]);
+    if (user.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.rows[0].username !== username.toLowerCase()) {
+      return res.status(403).json({ error: 'Username does not match' });
+    }
+
+    await query('DELETE FROM friend_requests WHERE sender_id = $1 OR receiver_id = $1', [req.userId]);
+    await query('DELETE FROM friendships WHERE user_id = $1 OR friend_id = $1', [req.userId]);
+    await query('DELETE FROM ai_reports WHERE user_id = $1', [req.userId]);
+    await query('DELETE FROM daily_entries WHERE user_id = $1', [req.userId]);
+    await query('DELETE FROM streaks WHERE user_id = $1', [req.userId]);
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.userId]);
+    await query('DELETE FROM subscriptions WHERE user_id = $1', [req.userId]);
+    await query('DELETE FROM users WHERE id = $1', [req.userId]);
+
+    res.json({ message: 'Account deleted successfully' });
   } catch (err) {
     next(err);
   }
