@@ -1,19 +1,6 @@
 const { getClient } = require('../config/openai');
 const { query } = require('../config/database');
 
-const ROTATING_QUESTIONS = {
-  1: 'How focused were you during training today?',
-  2: 'Did you give maximum effort today?',
-  3: 'How confident did you feel today?',
-  4: 'How well did you handle mistakes today?',
-  5: 'How disciplined were you today?',
-  6: 'How was your energy level today?',
-  7: 'Did you follow your training plan today?',
-  8: 'What did you learn today?',
-  9: 'How prepared did you feel today?',
-  10: 'How satisfied are you with today\'s performance?',
-};
-
 function buildSystemPrompt(sport, mantra, reportType) {
   const periodLabels = { weekly: 'week', monthly: 'month', yearly: 'year' };
   const periodLabel = periodLabels[reportType] || 'period';
@@ -32,14 +19,20 @@ YOUR COACHING PHILOSOPHY:
 
 ${mantra ? `THE ATHLETE'S PERSONAL MANTRA: "${mantra}" — This is their core identity statement. Reference it naturally when it connects to what you observe in their data. Don't force it, but when their actions align with or contradict this mantra, call it out.` : ''}
 
+DATA YOU WILL RECEIVE:
+- Training days include: areas worked on, skill that improved most, hardest drill, most common mistake, and tomorrow's focus
+- Game days include: sport-specific stats (goals, assists, points, etc.), best moment, biggest mistake, and improvement target
+- Rest days include: recovery activities, whether they studied their sport, and tomorrow's focus
+- Every day includes: what they did well, what to improve, and their proudest moment
+
 CRITICAL RULES:
 - NEVER give generic advice like "keep it up" or "stay consistent" without connecting it to specific data points
-- ALWAYS quote or paraphrase what the athlete actually wrote in their reflections — show them you read every word
-- When you see a rating drop (focus, effort, or confidence), dig into WHY based on the surrounding context
-- When you see a rating improve, celebrate it specifically and explain what they did differently
-- Look for patterns across days: did rest days help or hurt their next session? Do game days show different mental states than training days?
-- If they said something in "what they did well" one day and it shows up in "what to improve" another day, call out that inconsistency constructively
-- Track their energy and discipline patterns — these are early warning signs for burnout or breakthrough
+- ALWAYS quote or paraphrase what the athlete actually wrote — show them you read every word
+- When analyzing game stats, look for trends across multiple games (improving/declining numbers)
+- When they mention the same mistake repeatedly across training days, flag it as a pattern that needs targeted work
+- Connect their training focus areas to game performance — are they working on what matters?
+- Track rest day discipline — are they recovering properly between intense sessions?
+- Look for alignment between "proudest moment" entries and actual performance data
 
 RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structure:
 
@@ -47,35 +40,32 @@ RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structu
   "summary": "A powerful 3-4 sentence overview that immediately shows the athlete you understood their ${periodLabel}. Reference specific highs and lows by date. Set the tone for the rest of the report.",
 
   "strengths": [
-    "Each strength must reference specific entries, dates, or patterns. Example: 'On Tuesday your focus hit 9/10 during game day — and your reflection showed exactly why: you wrote that you stayed calm under pressure in the second half. That mental composure is becoming a pattern.'",
-    "Include 3-5 strengths, each 2-3 sentences with concrete evidence"
+    "Each strength must reference specific entries, dates, or patterns. Include 3-5 strengths, each 2-3 sentences with concrete evidence from their logs."
   ],
 
   "areasForImprovement": [
-    "Each area must be specific and actionable, not vague. Reference what the athlete themselves identified. Example: 'You mentioned wanting to improve your first-touch accuracy on Wednesday, and your confidence dipped to 4/10 that day. These are connected — when you doubt your technique, your body tightens up. Here is what to try...'",
-    "Include 2-4 areas, each 2-3 sentences with a clear path forward"
+    "Each area must be specific and actionable. Reference what the athlete themselves identified in their reflections. Include 2-4 areas, each 2-3 sentences with a clear path forward."
   ],
 
-  "mentalPatterns": "A deep 4-6 sentence analysis of their psychological trends. Look at confidence, focus, and how they handle mistakes. Do they bounce back quickly or does one bad day spiral? Are their self-reflections becoming more self-aware over time? How does their mental state differ between training and game days? Reference specific entries.",
+  "mentalPatterns": "A deep 4-6 sentence analysis of their psychological trends. Look at their reflections, proudest moments, and how they handle mistakes. Are their self-reflections becoming more self-aware? Do they bounce back from bad games?",
 
-  "physicalPatterns": "A 3-5 sentence analysis of their physical performance trends. Look at effort ratings, energy levels, rest day placement, and training load. Are they overtraining? Under-recovering? Is their effort consistent or do they have energy crashes? How do rest days affect their next session's performance?",
+  "physicalPatterns": "A 3-5 sentence analysis of their physical performance trends. Look at training areas, game stats progression, rest day placement, and training load. Are they overtraining? Under-recovering?",
 
-  "consistencyAnalysis": "A 3-4 sentence assessment of their discipline and routine. How many days did they log out of the ${periodLabel}? What does their activity type distribution look like (training vs game vs rest)? Is their logging consistent or sporadic? Consistency in showing up is the foundation — analyze it.",
+  "consistencyAnalysis": "A 3-4 sentence assessment of their discipline and routine. How many days did they log? What does their activity type distribution look like? Is their logging consistent?",
 
   "growthAreas": [
     {
       "area": "A specific area where the athlete is growing or needs attention",
-      "analysis": "2-3 sentences analyzing their progress in this area based on daily entries. Reference concrete evidence from their logs.",
-      "recommendation": "1-2 specific, actionable steps they should take this coming ${periodLabel} to improve"
+      "analysis": "2-3 sentences analyzing their progress based on daily entries and stats",
+      "recommendation": "1-2 specific, actionable steps they should take this coming ${periodLabel}"
     }
   ],
 
   "actionableTips": [
-    "Each tip must be specific to THIS athlete and THIS ${periodLabel}'s data. Not generic advice. Example: 'Your confidence drops every time you rate your effort below 6. This ${periodLabel === 'week' ? 'next week' : 'next month'}, before every session, spend 2 minutes reviewing what you wrote in your best entry this ${periodLabel} — remind yourself what peak performance feels like for you.'",
-    "Include 3-5 tips, each 1-2 sentences"
+    "Each tip must be specific to THIS athlete and THIS ${periodLabel}'s data. Include 3-5 tips, each 1-2 sentences."
   ],
 
-  "motivationalMessage": "A personal, powerful closing message (3-4 sentences) that connects their ${periodLabel}'s journey to their bigger picture. Reference their best moment this ${periodLabel} and project forward. If they have a mantra, weave it in naturally. Make them feel seen and fired up for the next ${periodLabel}."
+  "motivationalMessage": "A personal, powerful closing message (3-4 sentences) that connects their ${periodLabel}'s journey to their bigger picture. Reference their best moment and project forward."
 }`;
 }
 
@@ -86,25 +76,18 @@ function buildUserPrompt(entries, sport, reportType) {
   const trainingDays = entries.filter(e => e.activity_type === 'training').length;
   const gameDays = entries.filter(e => e.activity_type === 'game').length;
   const restDays = entries.filter(e => e.activity_type === 'rest_day').length;
-  const otherDays = entries.filter(e => e.activity_type === 'other').length;
-
-  const avgFocus = (entries.reduce((s, e) => s + (e.focus_rating || 0), 0) / totalDays).toFixed(1);
-  const avgEffort = (entries.reduce((s, e) => s + (e.effort_rating || 0), 0) / totalDays).toFixed(1);
-  const avgConfidence = (entries.reduce((s, e) => s + (e.confidence_rating || 0), 0) / totalDays).toFixed(1);
-  const avgScore = (entries.reduce((s, e) => s + (e.performance_score || 0), 0) / totalDays).toFixed(1);
 
   let prompt = `ATHLETE'S ${periodLabel.toUpperCase()} DATA — ${sport.toUpperCase()} PLAYER
 ${'='.repeat(50)}
 
-OVERVIEW: ${totalDays} entries logged (${trainingDays} training, ${gameDays} games, ${restDays} rest days${otherDays > 0 ? `, ${otherDays} other` : ''})
-AVERAGES: Focus ${avgFocus}/10 | Effort ${avgEffort}/10 | Confidence ${avgConfidence}/10 | Score ${avgScore}/10
+OVERVIEW: ${totalDays} entries logged (${trainingDays} training, ${gameDays} games, ${restDays} rest days)
 
 ${'='.repeat(50)}
 DAY-BY-DAY BREAKDOWN:
 ${'='.repeat(50)}
 `;
 
-  entries.forEach((e, i) => {
+  entries.forEach((e) => {
     const date = e.entry_date instanceof Date
       ? e.entry_date.toISOString().split('T')[0]
       : String(e.entry_date).split('T')[0];
@@ -116,53 +99,59 @@ ${'='.repeat(50)}
     prompt += `Activity: ${e.activity_type.replace('_', ' ').toUpperCase()}\n`;
 
     if (e.activity_type === 'training') {
-      const focusLabel = r.focusLabel || `${e.focus_rating}/10`;
-      const effortLabel = r.effortLabel || `${e.effort_rating}/10`;
-      prompt += `Focus: ${focusLabel} (${e.focus_rating}/10) | Effort: ${effortLabel} (${e.effort_rating}/10) | Score: ${e.performance_score}/10\n`;
       if (r.workedOn && r.workedOn.length > 0) {
         prompt += `Worked on: ${r.workedOn.join(', ')}\n`;
       }
+      if (r.skillImproved) prompt += `Skill that improved most: "${r.skillImproved}"\n`;
+      if (r.hardestDrill) prompt += `Hardest drill: "${r.hardestDrill}"\n`;
+      if (r.commonMistake) prompt += `Most common mistake: "${r.commonMistake}"\n`;
+      if (r.tomorrowFocus) prompt += `Tomorrow's focus: "${r.tomorrowFocus}"\n`;
+      // Legacy support
+      if (r.focusLabel) prompt += `Focus: ${r.focusLabel}\n`;
+      if (r.effortLabel) prompt += `Effort: ${r.effortLabel}\n`;
     } else if (e.activity_type === 'game') {
-      const feeling = r.preGameFeeling || `Confidence ${e.confidence_rating}/10`;
-      const performance = r.overallPerformance || `${e.focus_rating}/10`;
-      prompt += `Pre-game mindset: ${feeling} | Overall performance: ${performance} | Score: ${e.performance_score}/10\n`;
+      if (r.gameStats && Object.keys(r.gameStats).length > 0) {
+        const statLines = Object.entries(r.gameStats)
+          .filter(([, v]) => v > 0)
+          .map(([k, v]) => `${k.replace(/([A-Z])/g, ' $1').trim()}: ${v}`)
+          .join(', ');
+        if (statLines) prompt += `Stats: ${statLines}\n`;
+      }
+      if (r.bestMoment) prompt += `Best moment: "${r.bestMoment}"\n`;
+      if (r.biggestMistake) prompt += `Biggest mistake: "${r.biggestMistake}"\n`;
+      if (r.improveNextGame) prompt += `Improve next game: "${r.improveNextGame}"\n`;
+      // Legacy support
       if (r.strongestAreas && r.strongestAreas.length > 0) {
         prompt += `Strongest areas: ${r.strongestAreas.join(', ')}\n`;
       }
     } else if (e.activity_type === 'rest_day') {
-      const recovery = r.recoveryQuality || `${e.focus_rating}/10`;
-      const discipline = r.discipline || `${e.effort_rating}/10`;
-      prompt += `Recovery quality: ${recovery} | Discipline: ${discipline} | Score: ${e.performance_score}/10\n`;
-      if (r.restActivities && r.restActivities.length > 0) {
-        prompt += `Activities: ${r.restActivities.join(', ')}\n`;
+      if (r.recoveryActivities && r.recoveryActivities.length > 0) {
+        prompt += `Recovery activities: ${r.recoveryActivities.join(', ')}\n`;
+      } else if (r.restActivities && r.restActivities.length > 0) {
+        prompt += `Recovery activities: ${r.restActivities.join(', ')}\n`;
       }
-    } else if (e.activity_type === 'other') {
-      const feeling = r.otherFeeling || `${e.focus_rating}/10`;
-      prompt += `Overall feeling: ${feeling} | Score: ${e.performance_score}/10\n`;
-      if (r.otherActivities && r.otherActivities.length > 0) {
-        prompt += `Activities: ${r.otherActivities.join(', ')}\n`;
-      }
-      if (r.otherDescription) {
-        prompt += `Description: "${r.otherDescription}"\n`;
-      }
-    } else {
-      prompt += `Ratings: Focus ${e.focus_rating}/10 | Effort ${e.effort_rating}/10 | Confidence ${e.confidence_rating}/10 | Score: ${e.performance_score}/10\n`;
+      if (r.sportStudy) prompt += `Sport study: ${r.sportStudy}\n`;
+      if (r.restTomorrowFocus) prompt += `Tomorrow's focus: "${r.restTomorrowFocus}"\n`;
+      // Legacy support
+      if (r.recoveryQuality) prompt += `Recovery quality: ${r.recoveryQuality}\n`;
+      if (r.discipline) prompt += `Discipline: ${r.discipline}\n`;
     }
 
-    if (e.did_well) {
-      prompt += `What went well: "${e.did_well}"\n`;
-    }
-    if (e.improve_next) {
-      prompt += `What to improve: "${e.improve_next}"\n`;
+    // Universal reflections (new format)
+    if (r.didWell) prompt += `What went well: "${r.didWell}"\n`;
+    else if (e.did_well) prompt += `What went well: "${e.did_well}"\n`;
+
+    if (r.improveNext) prompt += `What to improve: "${r.improveNext}"\n`;
+    else if (e.improve_next) prompt += `What to improve: "${e.improve_next}"\n`;
+
+    if (r.proudMoment) prompt += `Proudest moment: "${r.proudMoment}"\n`;
+
+    // Legacy rotating questions
+    if (r.rotatingQ && r.rotatingA) {
+      prompt += `"${r.rotatingQ}": "${r.rotatingA}"\n`;
     }
     if (r.recoveryReflection) {
       prompt += `Recovery reflection: "${r.recoveryReflection}"\n`;
-    }
-    if (r.rotatingQ && r.rotatingA) {
-      prompt += `"${r.rotatingQ}": "${r.rotatingA}"\n`;
-    } else if (e.rotating_question_id && e.rotating_answer) {
-      const question = ROTATING_QUESTIONS[e.rotating_question_id] || `Question #${e.rotating_question_id}`;
-      prompt += `Daily question — "${question}": "${e.rotating_answer}"\n`;
     }
   });
 

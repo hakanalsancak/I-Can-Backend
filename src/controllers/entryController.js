@@ -178,11 +178,10 @@ exports.getEntryByDate = async (req, res, next) => {
 exports.generateInsight = async (req, res, next) => {
   try {
     const {
-      activityType, focus, effort, trainingAreas,
-      reflectionPositive, reflectionImprove,
-      dailyQuestion, dailyAnswer,
-      preGameFeeling, overallPerformance, strongestAreas,
-      recoveryQuality, restActivities, discipline, recoveryReflection,
+      activityType, trainingAreas, skillImproved, hardestDrill, commonMistake, tomorrowFocus,
+      gameStats, bestMoment, biggestMistake, improveNextGame,
+      recoveryActivities, sportStudy, restTomorrowFocus,
+      reflectionPositive, reflectionImprove, proudMoment,
     } = req.body;
 
     if (!activityType) {
@@ -192,23 +191,28 @@ exports.generateInsight = async (req, res, next) => {
     let logSummary = `Activity: ${activityType}\n`;
 
     if (activityType === 'Training') {
-      if (focus) logSummary += `Focus: ${focus}\n`;
-      if (effort) logSummary += `Effort: ${effort}\n`;
       if (trainingAreas && trainingAreas.length) logSummary += `Worked on: ${trainingAreas.join(', ')}\n`;
+      if (skillImproved) logSummary += `Skill that improved most: ${skillImproved}\n`;
+      if (hardestDrill) logSummary += `Hardest drill: ${hardestDrill}\n`;
+      if (commonMistake) logSummary += `Most common mistake: ${commonMistake}\n`;
+      if (tomorrowFocus) logSummary += `Tomorrow's focus: ${tomorrowFocus}\n`;
     } else if (activityType === 'Game') {
-      if (preGameFeeling) logSummary += `Pre-game feeling: ${preGameFeeling}\n`;
-      if (overallPerformance) logSummary += `Overall performance: ${overallPerformance}\n`;
-      if (strongestAreas && strongestAreas.length) logSummary += `Strongest areas: ${strongestAreas.join(', ')}\n`;
+      if (gameStats && Object.keys(gameStats).length > 0) {
+        const statLines = Object.entries(gameStats).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}`).join(', ');
+        if (statLines) logSummary += `Stats: ${statLines}\n`;
+      }
+      if (bestMoment) logSummary += `Best moment: ${bestMoment}\n`;
+      if (biggestMistake) logSummary += `Biggest mistake: ${biggestMistake}\n`;
+      if (improveNextGame) logSummary += `Improve next game: ${improveNextGame}\n`;
     } else if (activityType === 'Rest Day') {
-      if (recoveryQuality) logSummary += `Recovery quality: ${recoveryQuality}\n`;
-      if (restActivities && restActivities.length) logSummary += `Activities: ${restActivities.join(', ')}\n`;
-      if (discipline) logSummary += `Discipline: ${discipline}\n`;
+      if (recoveryActivities && recoveryActivities.length) logSummary += `Recovery: ${recoveryActivities.join(', ')}\n`;
+      if (sportStudy) logSummary += `Sport study: ${sportStudy}\n`;
+      if (restTomorrowFocus) logSummary += `Tomorrow's focus: ${restTomorrowFocus}\n`;
     }
 
     if (reflectionPositive) logSummary += `What went well: ${reflectionPositive}\n`;
     if (reflectionImprove) logSummary += `What to improve: ${reflectionImprove}\n`;
-    if (dailyQuestion && dailyAnswer) logSummary += `${dailyQuestion}: ${dailyAnswer}\n`;
-    if (recoveryReflection) logSummary += `Recovery reflection: ${recoveryReflection}\n`;
+    if (proudMoment) logSummary += `Proudest moment: ${proudMoment}\n`;
 
     const systemPrompt = `You are an elite sports performance coach helping athletes improve their mindset, focus, and discipline.
 
