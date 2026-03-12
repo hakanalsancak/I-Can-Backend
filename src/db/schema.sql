@@ -5,13 +5,19 @@
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE,
+    username VARCHAR(30) UNIQUE,
     password_hash VARCHAR(255),
     full_name VARCHAR(100),
     apple_id VARCHAR(255) UNIQUE,
     google_id VARCHAR(255) UNIQUE,
     age INT,
+    gender VARCHAR(20),
     country VARCHAR(10),
     sport VARCHAR(50) NOT NULL DEFAULT 'soccer',
+    team VARCHAR(100),
+    competition_level VARCHAR(30),
+    position VARCHAR(50),
+    primary_goal TEXT,
     mantra TEXT,
     notification_frequency INT DEFAULT 1,
     timezone VARCHAR(50) DEFAULT 'UTC',
@@ -64,22 +70,29 @@ INSERT INTO rotating_questions (id, question_text, answer_type) VALUES
     (10, 'How satisfied are you with today''s performance?', 'slider')
 ON CONFLICT (id) DO NOTHING;
 
--- GOALS
-CREATE TABLE IF NOT EXISTS goals (
+-- FRIENDSHIPS
+CREATE TABLE IF NOT EXISTS friendships (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    goal_type VARCHAR(10) NOT NULL CHECK (goal_type IN ('weekly', 'monthly', 'yearly')),
-    title VARCHAR(200) NOT NULL,
-    description TEXT,
-    target_value INT,
-    current_value INT DEFAULT 0,
-    is_completed BOOLEAN DEFAULT FALSE,
-    start_date DATE,
-    end_date DATE,
+    friend_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    UNIQUE(user_id, friend_id)
 );
-CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(user_id, goal_type);
+CREATE INDEX IF NOT EXISTS idx_friendships_user ON friendships(user_id);
+CREATE INDEX IF NOT EXISTS idx_friendships_friend ON friendships(friend_id);
+
+-- FRIEND REQUESTS
+CREATE TABLE IF NOT EXISTS friend_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    receiver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status VARCHAR(10) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(sender_id, receiver_id)
+);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver ON friend_requests(receiver_id, status);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_sender ON friend_requests(sender_id, status);
 
 -- STREAKS
 CREATE TABLE IF NOT EXISTS streaks (

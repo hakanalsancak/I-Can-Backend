@@ -8,7 +8,7 @@ const { generalLimiter } = require('./middleware/rateLimiter');
 
 const authRoutes = require('./routes/auth');
 const entryRoutes = require('./routes/entries');
-const goalRoutes = require('./routes/goals');
+const friendRoutes = require('./routes/friends');
 const reportRoutes = require('./routes/reports');
 const streakRoutes = require('./routes/streaks');
 const subscriptionRoutes = require('./routes/subscriptions');
@@ -30,7 +30,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/entries', entryRoutes);
-app.use('/api/goals', goalRoutes);
+app.use('/api/friends', friendRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/streaks', streakRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);

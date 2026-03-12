@@ -18,19 +18,29 @@ async function storeRefreshToken(userId, refreshToken) {
   );
 }
 
+function formatUserFields(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    fullName: user.full_name,
+    age: user.age,
+    gender: user.gender,
+    sport: user.sport,
+    mantra: user.mantra,
+    notificationFrequency: user.notification_frequency,
+    country: user.country,
+    team: user.team,
+    competitionLevel: user.competition_level,
+    position: user.position,
+    primaryGoal: user.primary_goal,
+    onboardingCompleted: user.onboarding_completed,
+  };
+}
+
 async function createUserResponse(user, tokens) {
   return {
-    user: {
-      id: user.id,
-      email: user.email,
-      fullName: user.full_name,
-      age: user.age,
-      sport: user.sport,
-      mantra: user.mantra,
-      notificationFrequency: user.notification_frequency,
-      country: user.country,
-      onboardingCompleted: user.onboarding_completed,
-    },
+    user: formatUserFields(user),
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
   };
@@ -236,36 +246,40 @@ exports.refreshToken = async (req, res, next) => {
 
 exports.completeOnboarding = async (req, res, next) => {
   try {
-    const { sport, mantra, notificationFrequency, fullName, age, country } = req.body;
+    const { sport, mantra, notificationFrequency, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username } = req.body;
     if (!sport) {
       return res.status(400).json({ error: 'Sport is required' });
+    }
+
+    if (username) {
+      const existing = await query('SELECT id FROM users WHERE username = $1 AND id != $2', [username.toLowerCase(), req.userId]);
+      if (existing.rows.length > 0) {
+        return res.status(409).json({ error: 'Username is already taken' });
+      }
     }
 
     const result = await query(
       `UPDATE users SET sport = $1, mantra = $2, notification_frequency = $3,
        full_name = COALESCE($5, full_name), age = COALESCE($6, age),
        country = COALESCE($7, country),
+       gender = COALESCE($8, gender),
+       team = COALESCE($9, team),
+       competition_level = COALESCE($10, competition_level),
+       position = COALESCE($11, position),
+       primary_goal = COALESCE($12, primary_goal),
+       username = COALESCE($13, username),
        onboarding_completed = TRUE, updated_at = NOW()
        WHERE id = $4 RETURNING *`,
-      [sport, mantra || null, notificationFrequency || 1, req.userId, fullName || null, age || null, country || null]
+      [sport, mantra || null, notificationFrequency || 1, req.userId, fullName || null, age || null, country || null,
+       gender || null, team || null, competitionLevel || null, position || null, primaryGoal || null,
+       username ? username.toLowerCase() : null]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const user = result.rows[0];
-    res.json({
-      id: user.id,
-      email: user.email,
-      fullName: user.full_name,
-      age: user.age,
-      country: user.country,
-      sport: user.sport,
-      mantra: user.mantra,
-      notificationFrequency: user.notification_frequency,
-      onboardingCompleted: user.onboarding_completed,
-    });
+    res.json(formatUserFields(result.rows[0]));
   } catch (err) {
     next(err);
   }
@@ -279,18 +293,9 @@ exports.getProfile = async (req, res, next) => {
     }
 
     const user = result.rows[0];
-    res.json({
-      id: user.id,
-      email: user.email,
-      fullName: user.full_name,
-      age: user.age,
-      country: user.country,
-      sport: user.sport,
-      mantra: user.mantra,
-      notificationFrequency: user.notification_frequency,
-      onboardingCompleted: user.onboarding_completed,
-      createdAt: user.created_at,
-    });
+    const fields = formatUserFields(user);
+    fields.createdAt = user.created_at;
+    res.json(fields);
   } catch (err) {
     next(err);
   }
@@ -298,7 +303,14 @@ exports.getProfile = async (req, res, next) => {
 
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { mantra, fullName, age, country } = req.body;
+    const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username } = req.body;
+
+    if (username !== undefined) {
+      const existing = await query('SELECT id FROM users WHERE username = $1 AND id != $2', [username.toLowerCase(), req.userId]);
+      if (existing.rows.length > 0) {
+        return res.status(409).json({ error: 'Username is already taken' });
+      }
+    }
 
     const result = await query(
       `UPDATE users SET
@@ -306,27 +318,24 @@ exports.updateProfile = async (req, res, next) => {
        full_name = COALESCE($2, full_name),
        age = COALESCE($3, age),
        country = COALESCE($5, country),
+       gender = COALESCE($6, gender),
+       team = COALESCE($7, team),
+       competition_level = COALESCE($8, competition_level),
+       position = COALESCE($9, position),
+       primary_goal = COALESCE($10, primary_goal),
+       username = COALESCE($11, username),
        updated_at = NOW()
        WHERE id = $4 RETURNING *`,
-      [mantra !== undefined ? (mantra || null) : undefined, fullName || null, age || null, req.userId, country || null]
+      [mantra !== undefined ? (mantra || null) : undefined, fullName || null, age || null, req.userId, country || null,
+       gender || null, team || null, competitionLevel || null, position || null, primaryGoal || null,
+       username !== undefined ? (username ? username.toLowerCase() : null) : undefined]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const user = result.rows[0];
-    res.json({
-      id: user.id,
-      email: user.email,
-      fullName: user.full_name,
-      age: user.age,
-      country: user.country,
-      sport: user.sport,
-      mantra: user.mantra,
-      notificationFrequency: user.notification_frequency,
-      onboardingCompleted: user.onboarding_completed,
-    });
+    res.json(formatUserFields(result.rows[0]));
   } catch (err) {
     next(err);
   }

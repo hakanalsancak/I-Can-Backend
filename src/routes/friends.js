@@ -1,0 +1,20 @@
+const express = require('express');
+const router = express.Router();
+const { authenticate } = require('../middleware/auth');
+const friendController = require('../controllers/friendController');
+
+router.get('/check-username', friendController.checkUsername);
+
+router.use(authenticate);
+
+router.get('/search', friendController.searchUsers);
+router.get('/requests', friendController.getPendingRequests);
+router.get('/', friendController.getFriends);
+router.get('/profile/:id', friendController.getFriendProfile);
+
+router.post('/request', friendController.sendRequest);
+router.put('/request/:id', friendController.respondToRequest);
+router.delete('/request/:id', friendController.cancelRequest);
+router.delete('/:id', friendController.removeFriend);
+
+module.exports = router;

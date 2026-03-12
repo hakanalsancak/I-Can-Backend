@@ -1,5 +1,13 @@
 const { query } = require('../config/database');
 
+const EFFECTIVE_STREAK_SQL = `
+  CASE
+    WHEN u.email LIKE '%@ican.seed' THEN s.current_streak
+    WHEN s.last_entry_date >= CURRENT_DATE - INTERVAL '1 day' THEN s.current_streak
+    ELSE 0
+  END
+`;
+
 exports.getGlobalLeaderboard = async (req, res, next) => {
   try {
     const userId = req.userId;
@@ -10,13 +18,13 @@ exports.getGlobalLeaderboard = async (req, res, next) => {
          COALESCE(u.full_name, 'Athlete') AS full_name,
          u.sport,
          u.country,
-         s.current_streak,
+         ${EFFECTIVE_STREAK_SQL} AS current_streak,
          s.longest_streak,
-         ROW_NUMBER() OVER (ORDER BY s.current_streak DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
+         ROW_NUMBER() OVER (ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
        FROM streaks s
        JOIN users u ON u.id = s.user_id
        WHERE u.onboarding_completed = TRUE
-       ORDER BY s.current_streak DESC, s.longest_streak DESC, s.updated_at ASC
+       ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC
        LIMIT 15`
     );
 
@@ -24,8 +32,8 @@ exports.getGlobalLeaderboard = async (req, res, next) => {
       `SELECT rank, current_streak FROM (
          SELECT
            s.user_id,
-           s.current_streak,
-           ROW_NUMBER() OVER (ORDER BY s.current_streak DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
+           ${EFFECTIVE_STREAK_SQL} AS current_streak,
+           ROW_NUMBER() OVER (ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
          FROM streaks s
          JOIN users u ON u.id = s.user_id
          WHERE u.onboarding_completed = TRUE
@@ -72,13 +80,13 @@ exports.getCountryLeaderboard = async (req, res, next) => {
          COALESCE(u.full_name, 'Athlete') AS full_name,
          u.sport,
          u.country,
-         s.current_streak,
+         ${EFFECTIVE_STREAK_SQL} AS current_streak,
          s.longest_streak,
-         ROW_NUMBER() OVER (ORDER BY s.current_streak DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
+         ROW_NUMBER() OVER (ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
        FROM streaks s
        JOIN users u ON u.id = s.user_id
        WHERE u.onboarding_completed = TRUE AND UPPER(u.country) = $1
-       ORDER BY s.current_streak DESC, s.longest_streak DESC, s.updated_at ASC
+       ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC
        LIMIT 15`,
       [countryCode]
     );
@@ -87,8 +95,8 @@ exports.getCountryLeaderboard = async (req, res, next) => {
       `SELECT rank, current_streak FROM (
          SELECT
            s.user_id,
-           s.current_streak,
-           ROW_NUMBER() OVER (ORDER BY s.current_streak DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
+           ${EFFECTIVE_STREAK_SQL} AS current_streak,
+           ROW_NUMBER() OVER (ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
          FROM streaks s
          JOIN users u ON u.id = s.user_id
          WHERE u.onboarding_completed = TRUE AND UPPER(u.country) = $1

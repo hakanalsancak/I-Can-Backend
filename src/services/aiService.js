@@ -62,11 +62,11 @@ RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structu
 
   "consistencyAnalysis": "A 3-4 sentence assessment of their discipline and routine. How many days did they log out of the ${periodLabel}? What does their activity type distribution look like (training vs game vs rest)? Is their logging consistent or sporadic? Consistency in showing up is the foundation — analyze it.",
 
-  "goalProgress": [
+  "growthAreas": [
     {
-      "goal": "The exact goal title",
-      "analysis": "2-3 sentences analyzing their progress toward this specific goal based on their daily entries. Reference concrete evidence from their logs.",
-      "recommendation": "1-2 specific, actionable steps they should take this coming ${periodLabel} to make progress on this goal"
+      "area": "A specific area where the athlete is growing or needs attention",
+      "analysis": "2-3 sentences analyzing their progress in this area based on daily entries. Reference concrete evidence from their logs.",
+      "recommendation": "1-2 specific, actionable steps they should take this coming ${periodLabel} to improve"
     }
   ],
 
@@ -79,7 +79,7 @@ RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structu
 }`;
 }
 
-function buildUserPrompt(entries, goals, sport, reportType) {
+function buildUserPrompt(entries, sport, reportType) {
   const periodLabels = { weekly: 'week', monthly: 'month', yearly: 'year' };
   const periodLabel = periodLabels[reportType] || 'period';
   const totalDays = entries.length;
@@ -166,18 +166,6 @@ ${'='.repeat(50)}
     }
   });
 
-  if (goals.length > 0) {
-    prompt += `\n${'='.repeat(50)}\nACTIVE GOALS:\n${'='.repeat(50)}\n`;
-    goals.forEach(g => {
-      prompt += `- [${g.goal_type}] ${g.title}`;
-      if (g.description) prompt += `: ${g.description}`;
-      if (g.target_value) prompt += ` (target: ${g.target_value}, current: ${g.current_value || 0})`;
-      prompt += '\n';
-    });
-  } else {
-    prompt += `\nNote: This athlete has not set any goals yet. In your goalProgress array, include one entry encouraging them to set specific goals.\n`;
-  }
-
   prompt += `\nAnalyze this data thoroughly. Remember: this athlete is paying for premium coaching. Every word should prove you read their entries carefully and genuinely care about their development as a ${sport} athlete. Be their best coach.`;
 
   return prompt;
@@ -199,13 +187,8 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
     throw new Error('No entries found for this period');
   }
 
-  const goalsResult = await query(
-    'SELECT * FROM goals WHERE user_id = $1 AND is_completed = FALSE',
-    [userId]
-  );
-
   const systemPrompt = buildSystemPrompt(sport || 'general', mantra, reportType);
-  const userPrompt = buildUserPrompt(entriesResult.rows, goalsResult.rows, sport || 'general', reportType);
+  const userPrompt = buildUserPrompt(entriesResult.rows, sport || 'general', reportType);
 
   const tokenLimits = { weekly: 4000, monthly: 5000, yearly: 6000 };
   const maxTokens = tokenLimits[reportType] || 4000;

@@ -110,6 +110,25 @@ function initCronJobs() {
     }
   });
 
+  // Fake leaderboard users: daily at 00:05 UTC — increment streaks
+  cron.schedule('5 0 * * *', async () => {
+    try {
+      const result = await query(
+        `UPDATE streaks SET
+           current_streak = current_streak + 1,
+           longest_streak = GREATEST(longest_streak, current_streak + 1),
+           last_entry_date = CURRENT_DATE,
+           updated_at = NOW()
+         WHERE user_id IN (
+           SELECT id FROM users WHERE email LIKE '%@ican.seed'
+         )`
+      );
+      console.log(`Updated ${result.rowCount} fake leaderboard streaks`);
+    } catch (err) {
+      console.error('Fake streak cron error:', err.message);
+    }
+  });
+
   // Motivational quotes: hourly
   cron.schedule('0 * * * *', async () => {
     try {
