@@ -5,6 +5,72 @@ function buildSystemPrompt(sport, mantra, reportType) {
   const periodLabels = { weekly: 'week', monthly: 'month', yearly: 'year' };
   const periodLabel = periodLabels[reportType] || 'period';
 
+  const depthConfig = {
+    weekly: {
+      summaryLen: '3-4 sentences',
+      strengthCount: '3-4', strengthLen: '2-3 sentences',
+      improvementCount: '2-3', improvementLen: '2-3 sentences',
+      mentalLen: '4-6 sentences',
+      physicalLen: '3-5 sentences',
+      consistencyLen: '3-4 sentences',
+      growthCount: '2-3', growthAnalysisLen: '2-3 sentences', growthRecLen: '1-2 steps',
+      tipsCount: '3-5',
+      closingLen: '3-4 sentences',
+    },
+    monthly: {
+      summaryLen: '5-7 sentences',
+      strengthCount: '4-6', strengthLen: '3-4 sentences',
+      improvementCount: '3-5', improvementLen: '3-4 sentences',
+      mentalLen: '6-10 sentences',
+      physicalLen: '6-8 sentences',
+      consistencyLen: '5-7 sentences',
+      growthCount: '3-5', growthAnalysisLen: '3-5 sentences', growthRecLen: '2-3 steps',
+      tipsCount: '5-7',
+      closingLen: '5-6 sentences',
+    },
+    yearly: {
+      summaryLen: '7-10 sentences',
+      strengthCount: '5-8', strengthLen: '4-5 sentences',
+      improvementCount: '4-6', improvementLen: '4-5 sentences',
+      mentalLen: '10-14 sentences',
+      physicalLen: '8-12 sentences',
+      consistencyLen: '7-10 sentences',
+      growthCount: '4-6', growthAnalysisLen: '4-6 sentences', growthRecLen: '3-4 steps',
+      tipsCount: '6-10',
+      closingLen: '6-8 sentences',
+    },
+  };
+
+  const d = depthConfig[reportType] || depthConfig.weekly;
+
+  let extraMonthlyInstructions = '';
+  if (reportType === 'monthly') {
+    extraMonthlyInstructions = `
+MONTHLY DEPTH REQUIREMENTS:
+- Compare week-over-week trends within the month. Did they start strong and taper off? Build momentum as the month went on?
+- Identify the single best day and single worst day of the month — explain why and what can be learned
+- Look for recurring mistakes across the entire month — if a mistake appeared 3+ times, it's a systemic issue that needs a plan
+- Analyze their training-to-game ratio: are they training enough for the games they play?
+- Assess whether their rest days are strategically placed or random
+- Their monthly report should feel like a thorough coaching session — the athlete should feel like you studied them deeply`;
+  }
+
+  let extraYearlyInstructions = '';
+  if (reportType === 'yearly') {
+    extraYearlyInstructions = `
+YEARLY DEPTH REQUIREMENTS:
+- This report is the most important one the athlete will read. It must feel monumental and worth the wait.
+- Break the year into phases (early months, mid-year, late months) and describe how the athlete evolved across each phase
+- Identify their defining moment of the year — the single entry or game that best represents their growth
+- Track long-term stat progressions: compare early-year game performances to late-year ones
+- Analyze how their mindset shifted over time — are their reflections more mature, self-aware, or detailed by year's end?
+- Look at training focus evolution — did they diversify or specialize? Was it the right call based on game results?
+- Assess year-long consistency: how many weeks/months had gaps? Were there burnout periods?
+- Connect their mantra to their year-long journey — did they live up to it? How has their relationship with it changed?
+- Project forward: based on this year's trajectory, what should next year look like?
+- Write this report as if it's a year-end letter from the best coach they've ever had — personal, detailed, inspiring`;
+  }
+
   return `You are an elite sports performance coach — the kind of coach that professional ${sport} athletes pay thousands of dollars to work with. You combine deep expertise in sport psychology, physical performance science, and mental conditioning.
 
 You are analyzing a ${sport} athlete's ${periodLabel} of daily performance journal entries. This athlete trusts you completely and relies on your feedback to get better every single day.
@@ -33,39 +99,40 @@ CRITICAL RULES:
 - Connect their training focus areas to game performance — are they working on what matters?
 - Track rest day discipline — are they recovering properly between intense sessions?
 - Look for alignment between "proudest moment" entries and actual performance data
+${extraMonthlyInstructions}${extraYearlyInstructions}
 
 RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structure:
 
 {
-  "summary": "A powerful 3-4 sentence overview that immediately shows the athlete you understood their ${periodLabel}. Reference specific highs and lows by date. Set the tone for the rest of the report.",
+  "summary": "A powerful ${d.summaryLen} overview that immediately shows the athlete you understood their ${periodLabel}. Reference specific highs and lows by date. Set the tone for the rest of the report.",
 
   "strengths": [
-    "Each strength must reference specific entries, dates, or patterns. Include 3-5 strengths, each 2-3 sentences with concrete evidence from their logs."
+    "Each strength must reference specific entries, dates, or patterns. Include ${d.strengthCount} strengths, each ${d.strengthLen} with concrete evidence from their logs."
   ],
 
   "areasForImprovement": [
-    "Each area must be specific and actionable. Reference what the athlete themselves identified in their reflections. Include 2-4 areas, each 2-3 sentences with a clear path forward."
+    "Each area must be specific and actionable. Reference what the athlete themselves identified in their reflections. Include ${d.improvementCount} areas, each ${d.improvementLen} with a clear path forward."
   ],
 
-  "mentalPatterns": "A deep 4-6 sentence analysis of their psychological trends. Look at their reflections, proudest moments, and how they handle mistakes. Are their self-reflections becoming more self-aware? Do they bounce back from bad games?",
+  "mentalPatterns": "A deep ${d.mentalLen} analysis of their psychological trends. Look at their reflections, proudest moments, and how they handle mistakes. Are their self-reflections becoming more self-aware? Do they bounce back from bad games?",
 
-  "physicalPatterns": "A 3-5 sentence analysis of their physical performance trends. Look at training areas, game stats progression, rest day placement, and training load. Are they overtraining? Under-recovering?",
+  "physicalPatterns": "A ${d.physicalLen} analysis of their physical performance trends. Look at training areas, game stats progression, rest day placement, and training load. Are they overtraining? Under-recovering?",
 
-  "consistencyAnalysis": "A 3-4 sentence assessment of their discipline and routine. How many days did they log? What does their activity type distribution look like? Is their logging consistent?",
+  "consistencyAnalysis": "A ${d.consistencyLen} assessment of their discipline and routine. How many days did they log? What does their activity type distribution look like? Is their logging consistent?",
 
   "growthAreas": [
     {
-      "area": "A specific area where the athlete is growing or needs attention",
-      "analysis": "2-3 sentences analyzing their progress based on daily entries and stats",
-      "recommendation": "1-2 specific, actionable steps they should take this coming ${periodLabel}"
+      "area": "A specific area where the athlete is growing or needs attention — include ${d.growthCount} growth areas",
+      "analysis": "${d.growthAnalysisLen} analyzing their progress based on daily entries and stats",
+      "recommendation": "${d.growthRecLen} — specific, actionable steps they should take this coming ${periodLabel}"
     }
   ],
 
   "actionableTips": [
-    "Each tip must be specific to THIS athlete and THIS ${periodLabel}'s data. Include 3-5 tips, each 1-2 sentences."
+    "Each tip must be specific to THIS athlete and THIS ${periodLabel}'s data. Include ${d.tipsCount} tips, each 1-2 sentences."
   ],
 
-  "motivationalMessage": "A personal, powerful closing message (3-4 sentences) that connects their ${periodLabel}'s journey to their bigger picture. Reference their best moment and project forward."
+  "motivationalMessage": "A personal, powerful closing message (${d.closingLen}) that connects their ${periodLabel}'s journey to their bigger picture. Reference their best moment and project forward."
 }`;
 }
 
@@ -179,7 +246,7 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
   const systemPrompt = buildSystemPrompt(sport || 'general', mantra, reportType);
   const userPrompt = buildUserPrompt(entriesResult.rows, sport || 'general', reportType);
 
-  const tokenLimits = { weekly: 4000, monthly: 5000, yearly: 6000 };
+  const tokenLimits = { weekly: 4000, monthly: 8000, yearly: 12000 };
   const maxTokens = tokenLimits[reportType] || 4000;
 
   const completion = await getClient().chat.completions.create({

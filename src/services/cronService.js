@@ -18,8 +18,19 @@ async function sendReportNotification(userId, reportType, periodLabel) {
     const tokens = await query('SELECT token FROM device_tokens WHERE user_id = $1', [userId]);
     if (tokens.rows.length === 0) return;
 
+    const typeLabel = reportType.charAt(0).toUpperCase() + reportType.slice(1);
+    const title = `${typeLabel} Report Ready`;
+    const body = `Your ${reportType} performance report is ready. See what your AI coach has to say.`;
+
+    const deviceTokens = tokens.rows.map(t => t.token);
+    const { sendPush } = require('../config/apns');
+    await sendPush(deviceTokens, {
+      title,
+      body,
+      data: { type: 'report_ready', reportType },
+    });
+
     await logNotification(userId, 'report_ready', `Your ${reportType} report is ready`);
-    // APNS push would be sent here using the device tokens
   } catch (err) {
     console.error(`Notification failed for user ${userId}:`, err.message);
   }
@@ -38,11 +49,10 @@ async function generateReportsForPeriod(reportType, periodStart, periodEnd, minE
       const count = parseInt(countResult.rows[0].cnt);
       if (count < minEntries) continue;
 
-      const existing = await query(
-        'SELECT id FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND period_start = $3 AND period_end = $4',
-        [user.id, reportType, periodStart, periodEnd]
+      await query(
+        'DELETE FROM ai_reports WHERE user_id = $1 AND report_type = $2',
+        [user.id, reportType]
       );
-      if (existing.rows.length > 0) continue;
 
       await generateReport(user.id, reportType, periodStart, periodEnd);
       await sendReportNotification(user.id, reportType, `${periodStart} – ${periodEnd}`);
@@ -140,8 +150,16 @@ function initCronJobs() {
       const requiredFrequency = slotIndex + 1;
       const users = await getUsersForNotification(requiredFrequency);
 
+      const { sendPush } = require('../config/apns');
       for (const user of users) {
         const quote = getRandomQuote();
+        if (user.token) {
+          await sendPush([user.token], {
+            title: 'I Can',
+            body: quote,
+            data: { type: 'motivational_quote' },
+          });
+        }
         await logNotification(user.id, 'motivational_quote', quote);
       }
     } catch (err) {

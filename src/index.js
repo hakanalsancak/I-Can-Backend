@@ -14,6 +14,7 @@ const streakRoutes = require('./routes/streaks');
 const subscriptionRoutes = require('./routes/subscriptions');
 const notificationRoutes = require('./routes/notifications');
 const leaderboardRoutes = require('./routes/leaderboard');
+const chatRoutes = require('./routes/chat');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,6 +37,7 @@ app.use('/api/streaks', streakRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/chat', chatRoutes);
 
 app.use(errorHandler);
 
