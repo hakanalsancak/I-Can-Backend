@@ -68,8 +68,8 @@ exports.getCountryLeaderboard = async (req, res, next) => {
     const userId = req.userId;
     const { code } = req.params;
 
-    if (!code || code.length > 10) {
-      return res.status(400).json({ error: 'Valid country code is required' });
+    if (!code || !/^[A-Za-z]{2}$/.test(code)) {
+      return res.status(400).json({ error: 'Valid 2-letter country code is required' });
     }
 
     const countryCode = code.toUpperCase();

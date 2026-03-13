@@ -4,9 +4,9 @@ let _client = null;
 
 function getClient() {
   if (!_client) {
-    _client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || 'missing-key',
-    });
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OPENAI_API_KEY environment variable is not set');
+    _client = new OpenAI({ apiKey });
   }
   return _client;
 }

@@ -40,6 +40,9 @@ exports.chat = async (req, res, next) => {
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'Message is required' });
     }
+    if (message.trim().length > 2000) {
+      return res.status(400).json({ error: 'Message exceeds 2000 character limit' });
+    }
 
     const userResult = await query('SELECT sport, full_name, mantra FROM users WHERE id = $1', [req.userId]);
     const user = userResult.rows[0];
@@ -60,7 +63,11 @@ exports.chat = async (req, res, next) => {
     if (history && Array.isArray(history)) {
       const recent = history.slice(-10);
       for (const msg of recent) {
-        if (msg.role === 'user' || msg.role === 'assistant') {
+        if (
+          (msg.role === 'user' || msg.role === 'assistant') &&
+          typeof msg.content === 'string' &&
+          msg.content.length <= 2000
+        ) {
           messages.push({ role: msg.role, content: msg.content });
         }
       }
@@ -68,12 +75,11 @@ exports.chat = async (req, res, next) => {
 
     messages.push({ role: 'user', content: message.trim() });
 
-    const completion = await getClient().chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      temperature: 0.85,
-      max_tokens: 1000,
-    });
+    const TIMEOUT_MS = 30_000;
+    const completion = await Promise.race([
+      getClient().chat.completions.create({ model: 'gpt-4o-mini', messages, temperature: 0.85, max_tokens: 1000 }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('AI response timed out')), TIMEOUT_MS)),
+    ]);
 
     let reply = completion.choices[0].message.content;
 

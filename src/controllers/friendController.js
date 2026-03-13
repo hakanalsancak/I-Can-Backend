@@ -42,14 +42,12 @@ exports.searchUsers = async (req, res, next) => {
     );
     const incomingIds = new Set(incoming.rows.map(r => r.sender_id));
 
+    // Search results only expose display info — team/position/country omitted to prevent harvesting
     const users = result.rows.map(u => ({
       id: u.id,
       username: u.username,
       fullName: u.full_name,
       sport: u.sport,
-      team: u.team,
-      position: u.position,
-      country: u.country,
       currentStreak: u.current_streak || 0,
       friendStatus: friendIds.has(u.id) ? 'friends' : pendingIds.has(u.id) ? 'pending' : incomingIds.has(u.id) ? 'incoming' : 'none',
     }));
@@ -242,6 +240,17 @@ exports.getFriendProfile = async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    // Only allow viewing own profile or the profile of a confirmed friend
+    if (id !== req.userId) {
+      const isFriend = await query(
+        'SELECT id FROM friendships WHERE user_id = $1 AND friend_id = $2',
+        [req.userId, id]
+      );
+      if (isFriend.rows.length === 0) {
+        return res.status(403).json({ error: 'You can only view profiles of your friends' });
+      }
+    }
+
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
               u.competition_level, u.mantra,
@@ -258,11 +267,6 @@ exports.getFriendProfile = async (req, res, next) => {
 
     const u = result.rows[0];
 
-    const isFriend = await query(
-      'SELECT id FROM friendships WHERE user_id = $1 AND friend_id = $2',
-      [req.userId, id]
-    );
-
     res.json({
       id: u.id,
       username: u.username,
@@ -275,7 +279,7 @@ exports.getFriendProfile = async (req, res, next) => {
       mantra: u.mantra,
       currentStreak: u.current_streak || 0,
       longestStreak: u.longest_streak || 0,
-      isFriend: isFriend.rows.length > 0,
+      isFriend: id !== req.userId,
     });
   } catch (err) {
     next(err);

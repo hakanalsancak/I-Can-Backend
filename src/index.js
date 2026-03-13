@@ -1,4 +1,18 @@
 require('dotenv').config();
+
+// Validate required secrets at startup
+['JWT_SECRET', 'JWT_REFRESH_SECRET'].forEach((key) => {
+  const val = process.env[key];
+  if (!val || val.length < 32) {
+    const msg = `${key} must be set and at least 32 characters long`;
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(msg); // Hard crash in production — weak secrets are unacceptable
+    } else {
+      console.warn(`[SECURITY WARNING] ${msg}`);
+    }
+  }
+});
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -20,8 +34,25 @@ const feedbackRoutes = require('./routes/feedback');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(helmet());
-app.use(cors());
+app.use(helmet({
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+}));
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow requests with no Origin (native mobile apps, curl, server-to-server)
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS: origin '${origin}' not allowed`));
+  },
+  credentials: true,
+}));
+
 app.use(morgan('combined'));
 app.use(express.json({ limit: '1mb' }));
 app.use(generalLimiter);

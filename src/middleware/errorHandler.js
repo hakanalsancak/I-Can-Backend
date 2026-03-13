@@ -1,5 +1,11 @@
 const errorHandler = (err, req, res, _next) => {
-  console.error('Error:', err.message);
+  // Sanitize message before logging — strip connection strings and tokens
+  const safeMessage = (err.message || '')
+    .replace(/postgresql:\/\/[^\s]*/gi, '[DB_URL]')
+    .replace(/Bearer\s+\S+/gi, 'Bearer [TOKEN]')
+    .replace(/password[=:]\s*\S+/gi, 'password=[REDACTED]');
+
+  console.error('Error:', safeMessage);
   if (process.env.NODE_ENV === 'development') {
     console.error(err.stack);
   }

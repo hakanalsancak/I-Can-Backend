@@ -130,7 +130,17 @@ exports.submitEntry = async (req, res, next) => {
 
 exports.getEntries = async (req, res, next) => {
   try {
-    const { startDate, endDate, limit = 30, offset = 0 } = req.query;
+    const MAX_LIMIT = 100;
+    const { startDate, endDate, offset = 0 } = req.query;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 30, 1), MAX_LIMIT);
+
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+    if (startDate && !ISO_DATE.test(startDate)) {
+      return res.status(400).json({ error: 'startDate must be in YYYY-MM-DD format' });
+    }
+    if (endDate && !ISO_DATE.test(endDate)) {
+      return res.status(400).json({ error: 'endDate must be in YYYY-MM-DD format' });
+    }
 
     let sql = 'SELECT * FROM daily_entries WHERE user_id = $1';
     const params = [req.userId];
@@ -148,7 +158,7 @@ exports.getEntries = async (req, res, next) => {
     }
 
     sql += ` ORDER BY entry_date DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(limit, Math.max(parseInt(offset) || 0, 0));
 
     const result = await query(sql, params);
     res.json({ entries: result.rows.map(formatEntry) });
@@ -230,16 +240,20 @@ Rules:
 - Do NOT use quotation marks around your response.
 - Respond with only the coaching insight, nothing else.`;
 
+    const TIMEOUT_MS = 20_000;
     const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Here is the athlete's daily log:\n\n${logSummary}` },
-      ],
-      max_tokens: 100,
-      temperature: 0.7,
-    });
+    const completion = await Promise.race([
+      openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Here is the athlete's daily log:\n\n${logSummary}` },
+        ],
+        max_tokens: 100,
+        temperature: 0.7,
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Insight generation timed out')), TIMEOUT_MS)),
+    ]);
 
     const insight = completion.choices[0]?.message?.content?.trim() || '';
     res.json({ insight });

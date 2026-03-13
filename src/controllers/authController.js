@@ -9,12 +9,22 @@ function generateTokens(userId) {
   return { accessToken, refreshToken };
 }
 
+const MAX_REFRESH_TOKENS_PER_USER = 5;
+
 async function storeRefreshToken(userId, refreshToken) {
   const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await query(
     'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
     [userId, tokenHash, expiresAt]
+  );
+  // Evict oldest tokens beyond the per-user limit
+  await query(
+    `DELETE FROM refresh_tokens WHERE user_id = $1 AND id NOT IN (
+       SELECT id FROM refresh_tokens WHERE user_id = $1
+       ORDER BY created_at DESC LIMIT $2
+     )`,
+    [userId, MAX_REFRESH_TOKENS_PER_USER]
   );
 }
 
@@ -51,6 +61,11 @@ exports.register = async (req, res, next) => {
     const { email, password, fullName } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Block reserved internal domains used for seed/fake users
+    if (email.toLowerCase().endsWith('@ican.seed') || email.toLowerCase().endsWith('@ican.app')) {
+      return res.status(400).json({ error: 'Invalid email address' });
     }
 
     const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
@@ -127,6 +142,12 @@ exports.appleSignIn = async (req, res, next) => {
     const appleId = payload.sub;
     const email = payload.email;
 
+    // Apple sets email_verified as a string "true"/"false" or boolean
+    const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+    if (email && !emailVerified) {
+      return res.status(400).json({ error: 'Apple account email is not verified' });
+    }
+
     let result = await query('SELECT * FROM users WHERE apple_id = $1', [appleId]);
 
     if (result.rows.length === 0) {
@@ -175,6 +196,10 @@ exports.googleSignIn = async (req, res, next) => {
     const googleId = payload.sub;
     const email = payload.email;
     const fullName = payload.name;
+
+    if (!payload.email_verified) {
+      return res.status(400).json({ error: 'Google account email is not verified' });
+    }
 
     let result = await query('SELECT * FROM users WHERE google_id = $1', [googleId]);
 
@@ -338,6 +363,22 @@ exports.updateProfile = async (req, res, next) => {
     }
 
     res.json(formatUserFields(result.rows[0]));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.logout = async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body;
+    if (refreshToken) {
+      const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+      await query(
+        'DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2',
+        [tokenHash, req.userId]
+      );
+    }
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

@@ -8,6 +8,7 @@ router.post('/register', authLimiter, authController.register);
 router.post('/apple', authLimiter, authController.appleSignIn);
 router.post('/google', authLimiter, authController.googleSignIn);
 router.post('/refresh', authLimiter, authController.refreshToken);
+router.post('/logout', authenticate, authController.logout);
 router.put('/onboarding', authenticate, authController.completeOnboarding);
 router.get('/profile', authenticate, authController.getProfile);
 router.put('/profile', authenticate, authController.updateProfile);
