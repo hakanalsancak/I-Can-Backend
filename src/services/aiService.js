@@ -260,7 +260,12 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
     max_tokens: maxTokens,
   });
 
-  const reportContent = JSON.parse(completion.choices[0].message.content);
+  let reportContent;
+  try {
+    reportContent = JSON.parse(completion.choices[0].message.content);
+  } catch {
+    throw new Error('AI returned invalid JSON for report');
+  }
 
   const result = await query(
     `INSERT INTO ai_reports (user_id, report_type, period_start, period_end, report_content, entry_count)

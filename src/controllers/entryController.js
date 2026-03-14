@@ -42,6 +42,32 @@ exports.submitEntry = async (req, res, next) => {
       return res.status(400).json({ error: 'Entry date and activity type are required' });
     }
 
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+    if (!ISO_DATE.test(entryDate)) {
+      return res.status(400).json({ error: 'entryDate must be in YYYY-MM-DD format' });
+    }
+
+    // Validate rating fields are numbers in 1-10 range
+    for (const [label, val] of [['focusRating', focusRating], ['effortRating', effortRating], ['confidenceRating', confidenceRating]]) {
+      const n = Number(val);
+      if (!Number.isFinite(n) || n < 1 || n > 10) {
+        return res.status(400).json({ error: `${label} must be a number between 1 and 10` });
+      }
+    }
+
+    // Validate text field lengths
+    const MAX_TEXT = 2000;
+    for (const [label, val] of [['didWell', didWell], ['improveNext', improveNext], ['rotatingAnswer', rotatingAnswer]]) {
+      if (val && (typeof val !== 'string' || val.length > MAX_TEXT)) {
+        return res.status(400).json({ error: `${label} must be a string of ${MAX_TEXT} characters or less` });
+      }
+    }
+
+    // Validate responses JSON size
+    if (responses && JSON.stringify(responses).length > 10000) {
+      return res.status(400).json({ error: 'responses payload is too large' });
+    }
+
     const performanceScore = Math.round(((focusRating + effortRating + confidenceRating) / 3) * 10);
 
     const entryResult = await client.query(
@@ -170,6 +196,9 @@ exports.getEntries = async (req, res, next) => {
 exports.getEntryByDate = async (req, res, next) => {
   try {
     const { date } = req.params;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Date must be in YYYY-MM-DD format' });
+    }
     const result = await query(
       'SELECT * FROM daily_entries WHERE user_id = $1 AND entry_date = $2',
       [req.userId, date]

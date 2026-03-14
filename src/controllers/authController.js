@@ -63,6 +63,21 @@ exports.register = async (req, res, next) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
+    // Basic email format validation
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!EMAIL_RE.test(email) || email.length > 254) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+
+    // Password strength requirements
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    if (fullName !== undefined && (typeof fullName !== 'string' || fullName.length > 100)) {
+      return res.status(400).json({ error: 'Full name must be a string of 100 characters or less' });
+    }
+
     // Block reserved internal domains used for seed/fake users
     if (email.toLowerCase().endsWith('@ican.seed') || email.toLowerCase().endsWith('@ican.app')) {
       return res.status(400).json({ error: 'Invalid email address' });
@@ -269,11 +284,46 @@ exports.refreshToken = async (req, res, next) => {
   }
 };
 
+const VALID_GENDERS = ['male', 'female', 'non-binary', 'prefer_not_to_say'];
+const VALID_NOTIFICATION_FREQUENCIES = [0, 1, 2, 3];
+const COUNTRY_RE = /^[A-Za-z]{2}$/;
+const MAX_TEXT_LENGTH = 200;
+
+function validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport }) {
+  if (fullName !== undefined && fullName !== null && (typeof fullName !== 'string' || fullName.length > 100)) {
+    return 'Full name must be a string of 100 characters or less';
+  }
+  if (age !== undefined && age !== null) {
+    const n = Number(age);
+    if (!Number.isInteger(n) || n < 5 || n > 120) return 'Age must be an integer between 5 and 120';
+  }
+  if (country !== undefined && country !== null && !COUNTRY_RE.test(country)) {
+    return 'Country must be a 2-letter ISO code';
+  }
+  if (gender !== undefined && gender !== null && !VALID_GENDERS.includes(gender)) {
+    return `Gender must be one of: ${VALID_GENDERS.join(', ')}`;
+  }
+  if (notificationFrequency !== undefined && notificationFrequency !== null && !VALID_NOTIFICATION_FREQUENCIES.includes(Number(notificationFrequency))) {
+    return `Notification frequency must be one of: ${VALID_NOTIFICATION_FREQUENCIES.join(', ')}`;
+  }
+  for (const [label, val] of [['team', team], ['position', position], ['mantra', mantra], ['competitionLevel', competitionLevel], ['primaryGoal', primaryGoal], ['sport', sport]]) {
+    if (val !== undefined && val !== null && (typeof val !== 'string' || val.length > MAX_TEXT_LENGTH)) {
+      return `${label} must be a string of ${MAX_TEXT_LENGTH} characters or less`;
+    }
+  }
+  return null;
+}
+
 exports.completeOnboarding = async (req, res, next) => {
   try {
     const { sport, mantra, notificationFrequency, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username } = req.body;
     if (!sport) {
       return res.status(400).json({ error: 'Sport is required' });
+    }
+
+    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport });
+    if (fieldError) {
+      return res.status(400).json({ error: fieldError });
     }
 
     if (username) {
@@ -329,6 +379,11 @@ exports.getProfile = async (req, res, next) => {
 exports.updateProfile = async (req, res, next) => {
   try {
     const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username, sport } = req.body;
+
+    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, mantra, competitionLevel, primaryGoal, sport });
+    if (fieldError) {
+      return res.status(400).json({ error: fieldError });
+    }
 
     if (username !== undefined) {
       const existing = await query('SELECT id FROM users WHERE username = $1 AND id != $2', [username.toLowerCase(), req.userId]);
