@@ -439,6 +439,98 @@ exports.logout = async (req, res, next) => {
   }
 };
 
+exports.linkApple = async (req, res, next) => {
+  try {
+    const { identityToken, fullName } = req.body;
+    if (!identityToken) {
+      return res.status(400).json({ error: 'Identity token is required' });
+    }
+
+    const appleSignin = require('apple-signin-auth');
+    const payload = await appleSignin.verifyIdToken(identityToken, {
+      audience: process.env.APPLE_CLIENT_ID,
+      ignoreExpiration: false,
+    });
+
+    const appleId = payload.sub;
+    const email = payload.email;
+
+    const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+    if (email && !emailVerified) {
+      return res.status(400).json({ error: 'Apple account email is not verified' });
+    }
+
+    const existing = await query('SELECT id FROM users WHERE apple_id = $1 AND id != $2', [appleId, req.userId]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'This Apple account is already linked to another user' });
+    }
+
+    const name = fullName
+      ? `${fullName.givenName || ''} ${fullName.familyName || ''}`.trim()
+      : null;
+
+    const result = await query(
+      `UPDATE users SET apple_id = $1, email = COALESCE($2, email),
+       full_name = COALESCE($3, full_name), updated_at = NOW()
+       WHERE id = $4 RETURNING *`,
+      [appleId, email, name, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(formatUserFields(result.rows[0]));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.linkGoogle = async (req, res, next) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ error: 'ID token is required' });
+    }
+
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+
+    const googleId = payload.sub;
+    const email = payload.email;
+    const fullName = payload.name;
+
+    if (!payload.email_verified) {
+      return res.status(400).json({ error: 'Google account email is not verified' });
+    }
+
+    const existing = await query('SELECT id FROM users WHERE google_id = $1 AND id != $2', [googleId, req.userId]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'This Google account is already linked to another user' });
+    }
+
+    const result = await query(
+      `UPDATE users SET google_id = $1, email = COALESCE($2, email),
+       full_name = COALESCE($3, full_name), updated_at = NOW()
+       WHERE id = $4 RETURNING *`,
+      [googleId, email, fullName, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(formatUserFields(result.rows[0]));
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.deleteAccount = async (req, res, next) => {
   try {
     const { username } = req.body;

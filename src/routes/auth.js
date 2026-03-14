@@ -13,6 +13,8 @@ router.post('/logout', authenticate, authController.logout);
 router.put('/onboarding', authenticate, authController.completeOnboarding);
 router.get('/profile', authenticate, authController.getProfile);
 router.put('/profile', authenticate, authController.updateProfile);
+router.put('/link-apple', authenticate, authController.linkApple);
+router.put('/link-google', authenticate, authController.linkGoogle);
 router.delete('/account', authenticate, authController.deleteAccount);
 
 module.exports = router;
