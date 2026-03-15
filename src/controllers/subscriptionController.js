@@ -32,10 +32,11 @@ function verifyAppleJWS(jwsRepresentation) {
     }
   }
 
-  // Verify the root certificate is Apple's
+  // Verify the root certificate is Apple's Root CA G3 by SHA-256 fingerprint
+  const APPLE_ROOT_CA_G3_SHA256 = '63:34:3A:BF:B8:9A:6A:03:EB:B5:7E:9B:3F:5F:A7:BE:7C:4F:5C:75:6F:30:17:B3:A8:C4:88:C3:65:3E:91:79';
   const rootCert = new crypto.X509Certificate(toPem(x5c[x5c.length - 1]));
-  if (!rootCert.subject.includes('Apple')) {
-    throw new Error('Root certificate is not issued by Apple');
+  if (rootCert.fingerprint256 !== APPLE_ROOT_CA_G3_SHA256) {
+    throw new Error('Root certificate is not Apple Root CA G3');
   }
 
   // Verify the JWS signature using the leaf certificate's public key
