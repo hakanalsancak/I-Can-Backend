@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { query } = require('../config/database');
+const { query, getClient } = require('../config/database');
 
 function generateTokens(userId) {
   const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
@@ -439,6 +439,15 @@ exports.logout = async (req, res, next) => {
   }
 };
 
+exports.logoutAll = async (req, res, next) => {
+  try {
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.userId]);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.linkApple = async (req, res, next) => {
   try {
     const { identityToken, fullName } = req.body;
@@ -547,14 +556,24 @@ exports.deleteAccount = async (req, res, next) => {
       return res.status(403).json({ error: 'Username does not match' });
     }
 
-    await query('DELETE FROM friend_requests WHERE sender_id = $1 OR receiver_id = $1', [req.userId]);
-    await query('DELETE FROM friendships WHERE user_id = $1 OR friend_id = $1', [req.userId]);
-    await query('DELETE FROM ai_reports WHERE user_id = $1', [req.userId]);
-    await query('DELETE FROM daily_entries WHERE user_id = $1', [req.userId]);
-    await query('DELETE FROM streaks WHERE user_id = $1', [req.userId]);
-    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.userId]);
-    await query('DELETE FROM subscriptions WHERE user_id = $1', [req.userId]);
-    await query('DELETE FROM users WHERE id = $1', [req.userId]);
+    const client = await getClient();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM friend_requests WHERE sender_id = $1 OR receiver_id = $1', [req.userId]);
+      await client.query('DELETE FROM friendships WHERE user_id = $1 OR friend_id = $1', [req.userId]);
+      await client.query('DELETE FROM ai_reports WHERE user_id = $1', [req.userId]);
+      await client.query('DELETE FROM daily_entries WHERE user_id = $1', [req.userId]);
+      await client.query('DELETE FROM streaks WHERE user_id = $1', [req.userId]);
+      await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.userId]);
+      await client.query('DELETE FROM subscriptions WHERE user_id = $1', [req.userId]);
+      await client.query('DELETE FROM users WHERE id = $1', [req.userId]);
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     res.json({ message: 'Account deleted successfully' });
   } catch (err) {

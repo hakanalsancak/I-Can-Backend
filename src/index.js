@@ -5,10 +5,10 @@ require('dotenv').config();
   const val = process.env[key];
   if (!val || val.length < 32) {
     const msg = `${key} must be set and at least 32 characters long`;
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error(msg); // Hard crash in production — weak secrets are unacceptable
-    } else {
+    if (process.env.NODE_ENV === 'development') {
       console.warn(`[SECURITY WARNING] ${msg}`);
+    } else {
+      throw new Error(msg);
     }
   }
 });
