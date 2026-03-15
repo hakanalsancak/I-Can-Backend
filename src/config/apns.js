@@ -1,4 +1,4 @@
-const apn = require('apn');
+const apn = require('@parse/node-apn');
 const path = require('path');
 const fs = require('fs');
 

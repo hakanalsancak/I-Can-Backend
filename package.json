@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0",
+    "@parse/node-apn": "^7.1.0",
     "apple-signin-auth": "^2.0.0",
-    "apn": "^2.2.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
