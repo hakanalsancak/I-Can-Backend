@@ -168,6 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash)
 CREATE TABLE IF NOT EXISTS feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type VARCHAR(20) DEFAULT 'feedback',
     message TEXT NOT NULL,
     email VARCHAR(255),
     created_at TIMESTAMPTZ DEFAULT NOW()
