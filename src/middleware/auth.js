@@ -8,7 +8,7 @@ const authenticate = (req, res, next) => {
 
   const token = header.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     req.userId = decoded.userId;
     next();
   } catch (err) {
@@ -24,7 +24,7 @@ const optionalAuth = (req, _res, next) => {
   if (header && header.startsWith('Bearer ')) {
     const token = header.split(' ')[1];
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
       req.userId = decoded.userId;
     } catch {
       // Token invalid/expired, continue without auth

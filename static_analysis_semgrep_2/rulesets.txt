@@ -1,0 +1,14 @@
+Scan Mode: important only
+Engine: Semgrep OSS 1.136.0
+Target: /Users/hakanalsancak/Desktop/IOS Projects/I Can/backend/src/
+
+Official Rulesets:
+- p/security-audit
+- p/secrets
+- p/javascript
+- p/nodejs
+- p/express
+
+Third-Party Rulesets:
+- https://github.com/trailofbits/semgrep-rules
+- https://github.com/elttam/semgrep-rules

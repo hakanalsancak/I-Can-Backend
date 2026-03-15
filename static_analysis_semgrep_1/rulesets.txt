@@ -1,0 +1,9 @@
+Approved Rulesets (2026-03-15)
+Mode: run all
+Engine: Semgrep OSS 1.136.0
+
+Scan 1 (js-core): p/javascript, p/nodejs, p/jwt — 68 rules, 1 finding
+Scan 2 (security): p/owasp-top-ten, p/security-audit, p/xss — 86 rules, 0 findings
+Scan 3 (sqli): p/sql-injection — 6 rules, 0 findings
+
+Total: 160 unique rules, 1 finding
