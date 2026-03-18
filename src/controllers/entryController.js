@@ -42,6 +42,11 @@ exports.submitEntry = async (req, res, next) => {
       return res.status(400).json({ error: 'Entry date and activity type are required' });
     }
 
+    const VALID_ACTIVITY_TYPES = ['training', 'game', 'rest_day', 'other'];
+    if (!VALID_ACTIVITY_TYPES.includes(activityType)) {
+      return res.status(400).json({ error: `Activity type must be one of: ${VALID_ACTIVITY_TYPES.join(', ')}` });
+    }
+
     const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
     if (!ISO_DATE.test(entryDate)) {
       return res.status(400).json({ error: 'entryDate must be in YYYY-MM-DD format' });
@@ -288,6 +293,6 @@ Rules:
     res.json({ insight });
   } catch (err) {
     console.error('Insight generation error:', err.message);
-    res.json({ insight: '' });
+    res.status(503).json({ error: 'Insight generation temporarily unavailable', insight: '' });
   }
 };

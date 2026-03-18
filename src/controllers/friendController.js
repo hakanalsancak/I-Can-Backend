@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+const { query, getClient } = require('../config/database');
 
 exports.searchUsers = async (req, res, next) => {
   try {
@@ -7,7 +7,8 @@ exports.searchUsers = async (req, res, next) => {
       return res.json([]);
     }
 
-    const searchTerm = `%${q.toLowerCase()}%`;
+    const escaped = q.toLowerCase().replace(/[%_\\]/g, '\\$&');
+    const searchTerm = `%${escaped}%`;
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
               s.current_streak
@@ -16,7 +17,7 @@ exports.searchUsers = async (req, res, next) => {
        WHERE u.id != $1
          AND u.onboarding_completed = TRUE
          AND u.email NOT LIKE '%@ican.seed'
-         AND (LOWER(u.username) LIKE $2 OR LOWER(u.full_name) LIKE $2)
+         AND (LOWER(u.username) LIKE $2 ESCAPE '\\' OR LOWER(u.full_name) LIKE $2 ESCAPE '\\')
        ORDER BY
          CASE WHEN LOWER(u.username) = $3 THEN 0 ELSE 1 END,
          u.full_name
@@ -126,9 +127,19 @@ exports.respondToRequest = async (req, res, next) => {
     const fr = request.rows[0];
 
     if (action === 'accept') {
-      await query('INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2)', [fr.sender_id, fr.receiver_id]);
-      await query('INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2)', [fr.receiver_id, fr.sender_id]);
-      await query(`UPDATE friend_requests SET status = 'accepted', updated_at = NOW() WHERE id = $1`, [id]);
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+        await client.query('INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2)', [fr.sender_id, fr.receiver_id]);
+        await client.query('INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2)', [fr.receiver_id, fr.sender_id]);
+        await client.query(`UPDATE friend_requests SET status = 'accepted', updated_at = NOW() WHERE id = $1`, [id]);
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
+      }
     } else {
       await query(`UPDATE friend_requests SET status = 'declined', updated_at = NOW() WHERE id = $1`, [id]);
     }

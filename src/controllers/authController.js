@@ -85,7 +85,7 @@ exports.register = async (req, res, next) => {
 
     const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Email already registered' });
+      return res.status(409).json({ error: 'Unable to create account with this email' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -298,9 +298,19 @@ exports.refreshToken = async (req, res, next) => {
 const VALID_GENDERS = ['male', 'female', 'non-binary', 'prefer_not_to_say'];
 const VALID_NOTIFICATION_FREQUENCIES = [0, 1, 2, 3];
 const COUNTRY_RE = /^[A-Za-z]{2}$/;
+const USERNAME_RE = /^[a-zA-Z0-9._]+$/;
+const MIN_USERNAME_LENGTH = 3;
 const MAX_TEXT_LENGTH = 200;
 
-function validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport }) {
+function validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport, username }) {
+  if (username !== undefined && username !== null) {
+    if (typeof username !== 'string' || username.length < MIN_USERNAME_LENGTH) {
+      return 'Username must be at least 3 characters';
+    }
+    if (!USERNAME_RE.test(username)) {
+      return 'Username can only contain letters, numbers, dots and underscores';
+    }
+  }
   if (fullName !== undefined && fullName !== null && (typeof fullName !== 'string' || fullName.length > 100)) {
     return 'Full name must be a string of 100 characters or less';
   }
@@ -332,7 +342,7 @@ exports.completeOnboarding = async (req, res, next) => {
       return res.status(400).json({ error: 'Sport is required' });
     }
 
-    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport });
+    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport, username });
     if (fieldError) {
       return res.status(400).json({ error: fieldError });
     }
@@ -391,7 +401,7 @@ exports.updateProfile = async (req, res, next) => {
   try {
     const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username, sport } = req.body;
 
-    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, mantra, competitionLevel, primaryGoal, sport });
+    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, mantra, competitionLevel, primaryGoal, sport, username });
     if (fieldError) {
       return res.status(400).json({ error: fieldError });
     }
