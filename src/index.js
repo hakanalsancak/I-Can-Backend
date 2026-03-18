@@ -53,7 +53,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(morgan('combined'));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'short' : 'combined'));
 app.use(express.json({ limit: '1mb' }));
 app.use(generalLimiter);
 

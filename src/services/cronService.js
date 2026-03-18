@@ -141,6 +141,16 @@ function initCronJobs() {
     }
   });
 
+  // Clean up expired refresh tokens: daily at 03:00 UTC
+  cron.schedule('0 3 * * *', async () => {
+    try {
+      const result = await query('DELETE FROM refresh_tokens WHERE expires_at < NOW()');
+      console.log(`Cleaned up ${result.rowCount} expired refresh tokens`);
+    } catch (err) {
+      console.error('Refresh token cleanup cron error:', err.message);
+    }
+  });
+
   // Motivational quotes: hourly
   cron.schedule('0 * * * *', async () => {
     try {

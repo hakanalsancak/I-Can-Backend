@@ -1,8 +1,13 @@
 const { Pool } = require('pg');
 
+const skipSSL = process.env.DB_SKIP_SSL_VERIFY === 'true';
+if (skipSSL && process.env.NODE_ENV === 'production') {
+  throw new Error('DB_SKIP_SSL_VERIFY cannot be enabled in production');
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: process.env.DB_SKIP_SSL_VERIFY !== 'true' },
+  ssl: { rejectUnauthorized: !skipSSL },
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,

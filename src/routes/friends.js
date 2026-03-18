@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate } = require('../middleware/auth');
+const { authenticate, optionalAuth } = require('../middleware/auth');
 const friendController = require('../controllers/friendController');
 
-router.get('/check-username', friendController.checkUsername);
+router.get('/check-username', optionalAuth, friendController.checkUsername);
 
 router.use(authenticate);
 

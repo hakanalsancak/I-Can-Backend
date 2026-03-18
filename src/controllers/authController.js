@@ -413,25 +413,48 @@ exports.updateProfile = async (req, res, next) => {
       }
     }
 
+    // Build dynamic SET clause — only update fields that were explicitly provided
+    const updates = [];
+    const params = [];
+    let paramIdx = 1;
+
+    const fieldMap = {
+      mantra: mantra,
+      full_name: fullName,
+      age: age,
+      country: country,
+      gender: gender,
+      team: team,
+      competition_level: competitionLevel,
+      position: position,
+      primary_goal: primaryGoal,
+      sport: sport,
+    };
+
+    for (const [col, val] of Object.entries(fieldMap)) {
+      if (req.body.hasOwnProperty(col === 'full_name' ? 'fullName' : col === 'competition_level' ? 'competitionLevel' : col === 'primary_goal' ? 'primaryGoal' : col)) {
+        updates.push(`${col} = $${paramIdx}`);
+        params.push(val || null);
+        paramIdx++;
+      }
+    }
+
+    if (username !== undefined) {
+      updates.push(`username = $${paramIdx}`);
+      params.push(username ? username.toLowerCase() : null);
+      paramIdx++;
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push('updated_at = NOW()');
+    params.push(req.userId);
+
     const result = await query(
-      `UPDATE users SET
-       mantra = COALESCE($1, mantra),
-       full_name = COALESCE($2, full_name),
-       age = COALESCE($3, age),
-       country = COALESCE($5, country),
-       gender = COALESCE($6, gender),
-       team = COALESCE($7, team),
-       competition_level = COALESCE($8, competition_level),
-       position = COALESCE($9, position),
-       primary_goal = COALESCE($10, primary_goal),
-       username = COALESCE($11, username),
-       sport = COALESCE($12, sport),
-       updated_at = NOW()
-       WHERE id = $4 RETURNING *`,
-      [mantra !== undefined ? (mantra || null) : undefined, fullName || null, age || null, req.userId, country || null,
-       gender || null, team || null, competitionLevel || null, position || null, primaryGoal || null,
-       username !== undefined ? (username ? username.toLowerCase() : null) : undefined,
-       sport || null]
+      `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIdx} RETURNING *`,
+      params
     );
 
     if (result.rows.length === 0) {

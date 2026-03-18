@@ -69,6 +69,11 @@ exports.sendRequest = async (req, res, next) => {
       return res.status(400).json({ error: 'Cannot send friend request to yourself' });
     }
 
+    const receiver = await query('SELECT id FROM users WHERE id = $1', [receiverId]);
+    if (receiver.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
     const existing = await query(
       'SELECT id FROM friendships WHERE user_id = $1 AND friend_id = $2',
       [req.userId, receiverId]

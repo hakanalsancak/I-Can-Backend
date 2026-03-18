@@ -21,8 +21,11 @@ exports.updatePreferences = async (req, res, next) => {
 exports.registerDeviceToken = async (req, res, next) => {
   try {
     const { token } = req.body;
-    if (!token) {
+    if (!token || typeof token !== 'string') {
       return res.status(400).json({ error: 'Device token is required' });
+    }
+    if (!/^[a-fA-F0-9]{64}$/.test(token)) {
+      return res.status(400).json({ error: 'Invalid device token format' });
     }
 
     await query(
