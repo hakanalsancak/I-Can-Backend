@@ -16,8 +16,8 @@ exports.searchUsers = async (req, res, next) => {
        LEFT JOIN streaks s ON s.user_id = u.id
        WHERE u.id != $1
          AND u.onboarding_completed = TRUE
-         AND u.email NOT LIKE '%@ican.seed'
-         AND (LOWER(u.username) LIKE $2 ESCAPE '\\' OR LOWER(u.full_name) LIKE $2 ESCAPE '\\')
+         AND (u.email IS NULL OR u.email NOT LIKE '%@ican.seed')
+         AND (LOWER(u.username) LIKE $2 OR LOWER(u.full_name) LIKE $2)
        ORDER BY
          CASE WHEN LOWER(u.username) = $3 THEN 0 ELSE 1 END,
          u.full_name
