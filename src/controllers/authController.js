@@ -586,18 +586,22 @@ exports.linkGoogle = async (req, res, next) => {
 
 exports.deleteAccount = async (req, res, next) => {
   try {
-    const { username } = req.body;
-    if (!username) {
-      return res.status(400).json({ error: 'Username confirmation required' });
+    const { confirmation } = req.body;
+    // Support legacy field name
+    const confirmValue = confirmation || req.body.username;
+    if (!confirmValue) {
+      return res.status(400).json({ error: 'Username or email confirmation required' });
     }
 
-    const user = await query('SELECT username FROM users WHERE id = $1', [req.userId]);
+    const user = await query('SELECT username, email FROM users WHERE id = $1', [req.userId]);
     if (user.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (user.rows[0].username !== username.toLowerCase()) {
-      return res.status(403).json({ error: 'Username does not match' });
+    const matchesUsername = user.rows[0].username && user.rows[0].username === confirmValue.toLowerCase();
+    const matchesEmail = user.rows[0].email && user.rows[0].email.toLowerCase() === confirmValue.toLowerCase();
+    if (!matchesUsername && !matchesEmail) {
+      return res.status(403).json({ error: 'Confirmation does not match your username or email' });
     }
 
     const client = await getClient();

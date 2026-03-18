@@ -28,52 +28,55 @@ function formatEntry(e) {
 }
 
 exports.submitEntry = async (req, res, next) => {
+  // Validate BEFORE acquiring a DB client to avoid leaking open transactions
+  const {
+    entryDate, activityType, focusRating, effortRating,
+    confidenceRating, didWell, improveNext,
+    rotatingQuestionId, rotatingAnswer, responses,
+  } = req.body;
+
+  if (!entryDate || !activityType) {
+    return res.status(400).json({ error: 'Entry date and activity type are required' });
+  }
+
+  const VALID_ACTIVITY_TYPES = ['training', 'game', 'rest_day', 'other'];
+  if (!VALID_ACTIVITY_TYPES.includes(activityType)) {
+    return res.status(400).json({ error: `Activity type must be one of: ${VALID_ACTIVITY_TYPES.join(', ')}` });
+  }
+
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  if (!ISO_DATE.test(entryDate)) {
+    return res.status(400).json({ error: 'entryDate must be in YYYY-MM-DD format' });
+  }
+
+  // Validate and coerce rating fields to numbers
+  const focus = Number(focusRating);
+  const effort = Number(effortRating);
+  const confidence = Number(confidenceRating);
+  for (const [label, n] of [['focusRating', focus], ['effortRating', effort], ['confidenceRating', confidence]]) {
+    if (!Number.isFinite(n) || n < 1 || n > 10) {
+      return res.status(400).json({ error: `${label} must be a number between 1 and 10` });
+    }
+  }
+
+  // Validate text field lengths
+  const MAX_TEXT = 2000;
+  for (const [label, val] of [['didWell', didWell], ['improveNext', improveNext], ['rotatingAnswer', rotatingAnswer]]) {
+    if (val && (typeof val !== 'string' || val.length > MAX_TEXT)) {
+      return res.status(400).json({ error: `${label} must be a string of ${MAX_TEXT} characters or less` });
+    }
+  }
+
+  // Validate responses JSON size
+  if (responses && JSON.stringify(responses).length > 10000) {
+    return res.status(400).json({ error: 'responses payload is too large' });
+  }
+
+  const performanceScore = Math.round(((focus + effort + confidence) / 3) * 10);
+
   const client = await getClient();
   try {
     await client.query('BEGIN');
-
-    const {
-      entryDate, activityType, focusRating, effortRating,
-      confidenceRating, didWell, improveNext,
-      rotatingQuestionId, rotatingAnswer, responses,
-    } = req.body;
-
-    if (!entryDate || !activityType) {
-      return res.status(400).json({ error: 'Entry date and activity type are required' });
-    }
-
-    const VALID_ACTIVITY_TYPES = ['training', 'game', 'rest_day', 'other'];
-    if (!VALID_ACTIVITY_TYPES.includes(activityType)) {
-      return res.status(400).json({ error: `Activity type must be one of: ${VALID_ACTIVITY_TYPES.join(', ')}` });
-    }
-
-    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-    if (!ISO_DATE.test(entryDate)) {
-      return res.status(400).json({ error: 'entryDate must be in YYYY-MM-DD format' });
-    }
-
-    // Validate rating fields are numbers in 1-10 range
-    for (const [label, val] of [['focusRating', focusRating], ['effortRating', effortRating], ['confidenceRating', confidenceRating]]) {
-      const n = Number(val);
-      if (!Number.isFinite(n) || n < 1 || n > 10) {
-        return res.status(400).json({ error: `${label} must be a number between 1 and 10` });
-      }
-    }
-
-    // Validate text field lengths
-    const MAX_TEXT = 2000;
-    for (const [label, val] of [['didWell', didWell], ['improveNext', improveNext], ['rotatingAnswer', rotatingAnswer]]) {
-      if (val && (typeof val !== 'string' || val.length > MAX_TEXT)) {
-        return res.status(400).json({ error: `${label} must be a string of ${MAX_TEXT} characters or less` });
-      }
-    }
-
-    // Validate responses JSON size
-    if (responses && JSON.stringify(responses).length > 10000) {
-      return res.status(400).json({ error: 'responses payload is too large' });
-    }
-
-    const performanceScore = Math.round(((focusRating + effortRating + confidenceRating) / 3) * 10);
 
     const entryResult = await client.query(
       `INSERT INTO daily_entries
@@ -94,8 +97,8 @@ exports.submitEntry = async (req, res, next) => {
          responses = EXCLUDED.responses
        RETURNING *`,
       [
-        req.userId, entryDate, activityType, focusRating, effortRating,
-        confidenceRating, performanceScore, didWell || null, improveNext || null,
+        req.userId, entryDate, activityType, focus, effort,
+        confidence, performanceScore, didWell || null, improveNext || null,
         rotatingQuestionId || null, rotatingAnswer || null,
         responses ? JSON.stringify(responses) : null,
       ]

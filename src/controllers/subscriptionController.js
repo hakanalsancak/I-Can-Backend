@@ -157,6 +157,16 @@ exports.verifyReceipt = async (req, res, next) => {
       return res.status(400).json({ error: 'Transaction data mismatch' });
     }
 
+    // Prevent receipt replay: reject if this transaction is already used by a different user
+    const txId = originalTransactionId || transactionId;
+    const existingTx = await query(
+      'SELECT user_id FROM subscriptions WHERE apple_transaction_id = $1 AND user_id != $2',
+      [txId, req.userId]
+    );
+    if (existingTx.rows.length > 0) {
+      return res.status(409).json({ error: 'This transaction is already associated with another account' });
+    }
+
     // Use Apple's authoritative expiration date from the JWS payload
     let periodEnd;
     if (jwsPayload.expiresDate) {

@@ -1,15 +1,10 @@
 require('dotenv').config();
 
-// Validate required secrets at startup
+// Validate required secrets at startup — enforced in all environments
 ['JWT_SECRET', 'JWT_REFRESH_SECRET'].forEach((key) => {
   const val = process.env[key];
   if (!val || val.length < 32) {
-    const msg = `${key} must be set and at least 32 characters long`;
-    if (process.env.NODE_ENV === 'development') {
-      console.warn(`[SECURITY WARNING] ${msg}`);
-    } else {
-      throw new Error(msg);
-    }
+    throw new Error(`${key} must be set and at least 32 characters long`);
   }
 });
 
