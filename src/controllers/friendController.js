@@ -56,7 +56,8 @@ exports.searchUsers = async (req, res, next) => {
 
     res.json(users);
   } catch (err) {
-    next(err);
+    console.error('[searchUsers]', err.message);
+    res.status(500).json({ error: `searchUsers: ${err.message}` });
   }
 };
 
@@ -207,7 +208,8 @@ exports.getPendingRequests = async (req, res, next) => {
 
     res.json(requests);
   } catch (err) {
-    next(err);
+    console.error('[getPendingRequests]', err.message);
+    res.status(500).json({ error: `getPendingRequests: ${err.message}` });
   }
 };
 
@@ -238,7 +240,8 @@ exports.getFriends = async (req, res, next) => {
 
     res.json(friends);
   } catch (err) {
-    next(err);
+    console.error('[getFriends]', err.message);
+    res.status(500).json({ error: `getFriends: ${err.message}` });
   }
 };
 
