@@ -157,12 +157,23 @@ exports.verifyReceipt = async (req, res, next) => {
       return res.status(400).json({ error: 'Transaction data mismatch' });
     }
 
-    const periodEnd = new Date();
-    const isYearly = productId && productId.includes('yearly');
-    if (isYearly) {
-      periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+    // Use Apple's authoritative expiration date from the JWS payload
+    let periodEnd;
+    if (jwsPayload.expiresDate) {
+      periodEnd = new Date(jwsPayload.expiresDate);
     } else {
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      // Fallback: calculate from server time if Apple doesn't provide expiresDate
+      periodEnd = new Date();
+      const isYearly = productId && productId.includes('yearly');
+      if (isYearly) {
+        periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+      } else {
+        periodEnd.setMonth(periodEnd.getMonth() + 1);
+      }
+    }
+
+    if (isNaN(periodEnd.getTime())) {
+      return res.status(400).json({ error: 'Invalid subscription expiration date' });
     }
 
     const result = await query(

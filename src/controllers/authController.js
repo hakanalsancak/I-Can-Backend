@@ -170,17 +170,28 @@ exports.appleSignIn = async (req, res, next) => {
         ? `${fullName.givenName || ''} ${fullName.familyName || ''}`.trim()
         : null;
 
-      result = await query(
-        `INSERT INTO users (apple_id, email, full_name)
-         VALUES ($1, $2, $3) RETURNING *`,
-        [appleId, email, name]
-      );
+      // Check if a user with the same email already exists and link the Apple ID
+      if (email) {
+        result = await query('SELECT * FROM users WHERE email = $1', [email]);
+        if (result.rows.length > 0) {
+          await query('UPDATE users SET apple_id = $1 WHERE id = $2', [appleId, result.rows[0].id]);
+          result = await query('SELECT * FROM users WHERE id = $1', [result.rows[0].id]);
+        }
+      }
 
-      const user = result.rows[0];
-      await query(
-        'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
-        [user.id]
-      );
+      if (result.rows.length === 0) {
+        result = await query(
+          `INSERT INTO users (apple_id, email, full_name)
+           VALUES ($1, $2, $3) RETURNING *`,
+          [appleId, email, name]
+        );
+
+        const user = result.rows[0];
+        await query(
+          'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
+          [user.id]
+        );
+      }
     }
 
     const user = result.rows[0];

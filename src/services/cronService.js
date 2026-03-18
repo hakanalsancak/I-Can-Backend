@@ -49,12 +49,14 @@ async function generateReportsForPeriod(reportType, periodStart, periodEnd, minE
       const count = parseInt(countResult.rows[0].cnt);
       if (count < minEntries) continue;
 
+      // Generate new report first, then delete old ones to prevent data loss on failure
+      const newReport = await generateReport(user.id, reportType, periodStart, periodEnd);
+
       await query(
-        'DELETE FROM ai_reports WHERE user_id = $1 AND report_type = $2',
-        [user.id, reportType]
+        'DELETE FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND id != $3',
+        [user.id, reportType, newReport.id]
       );
 
-      await generateReport(user.id, reportType, periodStart, periodEnd);
       await sendReportNotification(user.id, reportType, `${periodStart} – ${periodEnd}`);
       generated++;
     } catch (err) {
