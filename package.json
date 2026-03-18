@@ -6,13 +6,15 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "db:init": "node src/db/init.js"
+    "db:init": "node src/db/init.js",
+    "db:migrate:photo": "node src/db/migrate-profile-photo.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0",
     "@parse/node-apn": "^7.1.0",
     "apple-signin-auth": "^2.0.0",
     "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.9.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",
@@ -21,6 +23,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "multer": "^2.1.1",
     "node-cron": "^3.0.3",
     "openai": "^4.70.0",
     "pg": "^8.13.0"

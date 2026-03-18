@@ -11,7 +11,7 @@ exports.searchUsers = async (req, res, next) => {
     const searchTerm = `%${escaped}%`;
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
-              s.current_streak
+              u.profile_photo_url, s.current_streak
        FROM users u
        LEFT JOIN streaks s ON s.user_id = u.id
        WHERE u.id != $1
@@ -49,6 +49,7 @@ exports.searchUsers = async (req, res, next) => {
       username: u.username,
       fullName: u.full_name,
       sport: u.sport,
+      profilePhotoUrl: u.profile_photo_url || null,
       currentStreak: u.current_streak || 0,
       friendStatus: friendIds.has(u.id) ? 'friends' : pendingIds.has(u.id) ? 'pending' : incomingIds.has(u.id) ? 'incoming' : 'none',
     }));
@@ -178,7 +179,7 @@ exports.getPendingRequests = async (req, res, next) => {
     const result = await query(
       `SELECT fr.id, fr.sender_id, fr.created_at,
               u.username, u.full_name, u.sport, u.team, u.position, u.country,
-              s.current_streak
+              u.profile_photo_url, s.current_streak
        FROM friend_requests fr
        JOIN users u ON u.id = fr.sender_id
        LEFT JOIN streaks s ON s.user_id = fr.sender_id
@@ -199,6 +200,7 @@ exports.getPendingRequests = async (req, res, next) => {
         team: r.team,
         position: r.position,
         country: r.country,
+        profilePhotoUrl: r.profile_photo_url || null,
         currentStreak: r.current_streak || 0,
       },
     }));
@@ -213,7 +215,7 @@ exports.getFriends = async (req, res, next) => {
   try {
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
-              s.current_streak
+              u.profile_photo_url, s.current_streak
        FROM friendships f
        JOIN users u ON u.id = f.friend_id
        LEFT JOIN streaks s ON s.user_id = f.friend_id
@@ -230,6 +232,7 @@ exports.getFriends = async (req, res, next) => {
       team: u.team,
       position: u.position,
       country: u.country,
+      profilePhotoUrl: u.profile_photo_url || null,
       currentStreak: u.current_streak || 0,
     }));
 
@@ -269,7 +272,7 @@ exports.getFriendProfile = async (req, res, next) => {
 
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
-              u.competition_level, u.mantra,
+              u.competition_level, u.mantra, u.profile_photo_url,
               s.current_streak, s.longest_streak
        FROM users u
        LEFT JOIN streaks s ON s.user_id = u.id
@@ -293,6 +296,7 @@ exports.getFriendProfile = async (req, res, next) => {
       country: u.country,
       competitionLevel: u.competition_level,
       mantra: u.mantra,
+      profilePhotoUrl: u.profile_photo_url || null,
       currentStreak: u.current_streak || 0,
       longestStreak: u.longest_streak || 0,
       isFriend: id !== req.userId,

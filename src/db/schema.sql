@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
     position VARCHAR(50),
     primary_goal TEXT,
     mantra TEXT,
+    profile_photo_url VARCHAR(500),
     notification_frequency INT DEFAULT 1,
     timezone VARCHAR(50) DEFAULT 'UTC',
     onboarding_completed BOOLEAN DEFAULT FALSE,

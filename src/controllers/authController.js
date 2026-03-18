@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { query, getClient } = require('../config/database');
+const cloudinary = require('../config/cloudinary');
 
 function generateTokens(userId) {
   const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
@@ -44,6 +45,7 @@ function formatUserFields(user) {
     competitionLevel: user.competition_level,
     position: user.position,
     primaryGoal: user.primary_goal,
+    profilePhotoUrl: user.profile_photo_url || null,
     onboardingCompleted: user.onboarding_completed,
   };
 }
@@ -624,6 +626,82 @@ exports.deleteAccount = async (req, res, next) => {
     }
 
     res.json({ message: 'Account deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.uploadPhoto = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Photo is required' });
+    }
+
+    // Delete old photo from Cloudinary if one exists
+    const existing = await query('SELECT profile_photo_url FROM users WHERE id = $1', [req.userId]);
+    if (existing.rows.length > 0 && existing.rows[0].profile_photo_url) {
+      const oldUrl = existing.rows[0].profile_photo_url;
+      const publicId = oldUrl.split('/').slice(-2).join('/').replace(/\.[^.]+$/, '');
+      try {
+        await cloudinary.uploader.destroy(publicId);
+      } catch {
+        // Old photo cleanup is best-effort
+      }
+    }
+
+    // Upload to Cloudinary from memory buffer
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'ican/profile-photos',
+          public_id: req.userId,
+          overwrite: true,
+          transformation: [
+            { width: 500, height: 500, crop: 'fill', gravity: 'face' },
+            { quality: 'auto', fetch_format: 'auto' },
+          ],
+        },
+        (err, result) => (err ? reject(err) : resolve(result))
+      );
+      stream.end(req.file.buffer);
+    });
+
+    const result = await query(
+      'UPDATE users SET profile_photo_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [uploadResult.secure_url, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(formatUserFields(result.rows[0]));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deletePhoto = async (req, res, next) => {
+  try {
+    const existing = await query('SELECT profile_photo_url FROM users WHERE id = $1', [req.userId]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (existing.rows[0].profile_photo_url) {
+      try {
+        await cloudinary.uploader.destroy(`ican/profile-photos/${req.userId}`);
+      } catch {
+        // Cloudinary cleanup is best-effort
+      }
+    }
+
+    await query(
+      'UPDATE users SET profile_photo_url = NULL, updated_at = NOW() WHERE id = $1',
+      [req.userId]
+    );
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
