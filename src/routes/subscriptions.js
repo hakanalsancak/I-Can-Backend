@@ -3,6 +3,9 @@ const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const subscriptionController = require('../controllers/subscriptionController');
 
+// Apple Server-to-Server Notification V2 (no auth — called by Apple directly)
+router.post('/apple-notification', subscriptionController.appleWebhook);
+
 router.use(authenticate);
 
 router.get('/status', subscriptionController.getStatus);

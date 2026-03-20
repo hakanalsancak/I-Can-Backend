@@ -7,7 +7,7 @@ async function getPremiumUsers() {
   const result = await query(
     `SELECT DISTINCT u.id FROM users u
      JOIN subscriptions s ON s.user_id = u.id
-     WHERE (s.status = 'active' OR (s.status = 'trial' AND s.trial_end > NOW()))
+     WHERE ((s.status = 'active' AND s.current_period_end > NOW()) OR (s.status = 'trial' AND s.trial_end > NOW()))
      AND u.onboarding_completed = TRUE`
   );
   return result.rows;
@@ -138,6 +138,25 @@ function initCronJobs() {
       console.log(`Updated ${result.rowCount} fake leaderboard streaks`);
     } catch (err) {
       console.error('Fake streak cron error:', err.message);
+    }
+  });
+
+  // Mark expired subscriptions: daily at 02:00 UTC
+  cron.schedule('0 2 * * *', async () => {
+    try {
+      const result = await query(
+        `UPDATE subscriptions SET status = 'expired', updated_at = NOW()
+         WHERE status IN ('active', 'trial')
+         AND (
+           (status = 'active' AND current_period_end < NOW())
+           OR (status = 'trial' AND trial_end < NOW())
+         )`
+      );
+      if (result.rowCount > 0) {
+        console.log(`Marked ${result.rowCount} subscriptions as expired`);
+      }
+    } catch (err) {
+      console.error('Subscription expiration cron error:', err.message);
     }
   });
 

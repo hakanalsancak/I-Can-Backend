@@ -186,28 +186,129 @@ exports.verifyReceipt = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid subscription expiration date' });
     }
 
+    // Detect introductory offer (free trial)
+    const isTrial = jwsPayload.offerType === 1;
+    const subscriptionStatus = isTrial ? 'trial' : 'active';
+
     const result = await query(
       `INSERT INTO subscriptions (user_id, apple_transaction_id, product_id, status,
-       current_period_start, current_period_end)
-       VALUES ($1, $2, $3, 'active', NOW(), $4)
+       trial_start, trial_end, current_period_start, current_period_end)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
        ON CONFLICT (user_id) DO UPDATE SET
          apple_transaction_id = EXCLUDED.apple_transaction_id,
          product_id = EXCLUDED.product_id,
-         status = 'active',
+         status = EXCLUDED.status,
+         trial_start = COALESCE(EXCLUDED.trial_start, subscriptions.trial_start),
+         trial_end = COALESCE(EXCLUDED.trial_end, subscriptions.trial_end),
          current_period_start = NOW(),
          current_period_end = EXCLUDED.current_period_end,
          updated_at = NOW()
        RETURNING *`,
-      [req.userId, originalTransactionId || transactionId, productId, periodEnd]
+      [req.userId, originalTransactionId || transactionId, productId, subscriptionStatus,
+       isTrial ? new Date() : null, isTrial ? periodEnd : null, periodEnd]
     );
 
     const sub = result.rows[0];
     res.json({
       status: sub.status,
       isPremium: true,
+      trialEnd: sub.trial_end,
       currentPeriodEnd: sub.current_period_end,
+      productId: sub.product_id,
     });
   } catch (err) {
     next(err);
+  }
+};
+
+// App Store Server Notifications V2 webhook
+// Apple calls this endpoint for subscription lifecycle events (renewals, cancellations, refunds, etc.)
+exports.appleWebhook = async (req, res) => {
+  try {
+    const { signedPayload } = req.body;
+    if (!signedPayload) {
+      return res.status(400).json({ error: 'Missing signedPayload' });
+    }
+
+    let notification;
+    try {
+      notification = verifyAppleJWS(signedPayload);
+    } catch (err) {
+      console.error('Apple webhook JWS verification failed:', err.message);
+      return res.status(400).json({ error: 'Invalid notification signature' });
+    }
+
+    const { notificationType, subtype, data } = notification;
+
+    if (!data || !data.signedTransactionInfo) {
+      return res.sendStatus(200);
+    }
+
+    let transactionInfo;
+    try {
+      transactionInfo = verifyAppleJWS(data.signedTransactionInfo);
+    } catch (err) {
+      console.error('Apple webhook transaction JWS verification failed:', err.message);
+      return res.status(400).json({ error: 'Invalid transaction signature' });
+    }
+
+    const txId = String(transactionInfo.originalTransactionId || transactionInfo.transactionId);
+
+    const subResult = await query(
+      'SELECT id FROM subscriptions WHERE apple_transaction_id = $1',
+      [txId]
+    );
+
+    if (subResult.rows.length === 0) {
+      console.log(`Apple webhook: no subscription found for transaction ${txId}, type: ${notificationType}`);
+      return res.sendStatus(200);
+    }
+
+    const subId = subResult.rows[0].id;
+
+    switch (notificationType) {
+      case 'DID_RENEW': {
+        const periodEnd = transactionInfo.expiresDate ? new Date(transactionInfo.expiresDate) : null;
+        if (periodEnd && !isNaN(periodEnd.getTime())) {
+          await query(
+            `UPDATE subscriptions SET status = 'active',
+             current_period_start = NOW(), current_period_end = $1,
+             updated_at = NOW() WHERE id = $2`,
+            [periodEnd, subId]
+          );
+        }
+        break;
+      }
+
+      case 'EXPIRED':
+      case 'GRACE_PERIOD_EXPIRED': {
+        await query(
+          "UPDATE subscriptions SET status = 'expired', updated_at = NOW() WHERE id = $1",
+          [subId]
+        );
+        break;
+      }
+
+      case 'REFUND':
+      case 'REVOKE': {
+        await query(
+          "UPDATE subscriptions SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
+          [subId]
+        );
+        break;
+      }
+
+      case 'DID_CHANGE_RENEWAL_STATUS':
+        // Auto-renew toggled — no immediate status change, premium continues until current_period_end
+        break;
+
+      default:
+        console.log(`Apple webhook: unhandled type: ${notificationType} (subtype: ${subtype})`);
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('Apple webhook error:', err.message);
+    res.sendStatus(200);
   }
 };
