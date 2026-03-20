@@ -3,6 +3,8 @@ const crypto = require('crypto');
 
 // Validates Apple StoreKit 2 JWS signed transaction.
 // Returns the decoded payload if valid, throws on failure.
+// When APPLE_STOREKIT_TESTING=true, skips x5c/signature verification
+// because Xcode StoreKit Testing signs JWS locally without Apple's certificate chain.
 function verifyAppleJWS(jwsRepresentation) {
   const parts = (jwsRepresentation || '').split('.');
   if (parts.length !== 3) throw new Error('Invalid JWS format');
@@ -11,6 +13,13 @@ function verifyAppleJWS(jwsRepresentation) {
 
   const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8'));
   const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+
+  // Xcode StoreKit Testing mode: skip cryptographic verification
+  // JWS tokens from Xcode's local StoreKit testing lack Apple's x5c certificate chain
+  if (process.env.APPLE_STOREKIT_TESTING === 'true') {
+    console.warn('WARNING: Skipping Apple JWS cryptographic verification (APPLE_STOREKIT_TESTING=true)');
+    return payload;
+  }
 
   if (header.alg !== 'ES256') throw new Error('Unexpected JWS algorithm: ' + header.alg);
 
