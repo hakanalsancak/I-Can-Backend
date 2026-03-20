@@ -1,5 +1,6 @@
 const { query, getClient } = require('../config/database');
 const { getClient: getOpenAI } = require('../config/openai');
+const { checkPremiumAccess } = require('../services/subscriptionService');
 
 function formatDate(d) {
   if (!d) return null;
@@ -224,6 +225,11 @@ exports.getEntryByDate = async (req, res, next) => {
 
 exports.generateInsight = async (req, res, next) => {
   try {
+    const isPremium = await checkPremiumAccess(req.userId);
+    if (!isPremium) {
+      return res.status(403).json({ error: 'Premium subscription required', code: 'PREMIUM_REQUIRED' });
+    }
+
     const {
       activityType, trainingAreas, skillImproved, hardestDrill, commonMistake, tomorrowFocus,
       gameStats, bestMoment, biggestMistake, improveNextGame,
