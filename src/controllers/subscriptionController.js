@@ -17,6 +17,9 @@ function verifyAppleJWS(jwsRepresentation) {
   // Xcode StoreKit Testing mode: skip cryptographic verification
   // JWS tokens from Xcode's local StoreKit testing lack Apple's x5c certificate chain
   if (process.env.APPLE_STOREKIT_TESTING === 'true') {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('APPLE_STOREKIT_TESTING must not be enabled in production');
+    }
     console.warn('WARNING: Skipping Apple JWS cryptographic verification (APPLE_STOREKIT_TESTING=true)');
     return payload;
   }

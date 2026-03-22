@@ -56,8 +56,7 @@ exports.searchUsers = async (req, res, next) => {
 
     res.json(users);
   } catch (err) {
-    console.error('[searchUsers]', err.message);
-    res.status(500).json({ error: `searchUsers: ${err.message}` });
+    next(err);
   }
 };
 
@@ -208,8 +207,7 @@ exports.getPendingRequests = async (req, res, next) => {
 
     res.json(requests);
   } catch (err) {
-    console.error('[getPendingRequests]', err.message);
-    res.status(500).json({ error: `getPendingRequests: ${err.message}` });
+    next(err);
   }
 };
 
@@ -240,8 +238,7 @@ exports.getFriends = async (req, res, next) => {
 
     res.json(friends);
   } catch (err) {
-    console.error('[getFriends]', err.message);
-    res.status(500).json({ error: `getFriends: ${err.message}` });
+    next(err);
   }
 };
 
@@ -314,6 +311,10 @@ exports.checkUsername = async (req, res, next) => {
     const { username } = req.query;
     if (!username || username.length < 3) {
       return res.json({ available: false, error: 'Username must be at least 3 characters' });
+    }
+
+    if (username.length > 30) {
+      return res.json({ available: false, error: 'Username must be 30 characters or less' });
     }
 
     if (!/^[a-zA-Z0-9._]+$/.test(username)) {

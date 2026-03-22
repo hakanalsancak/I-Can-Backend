@@ -24,4 +24,12 @@ const aiLimiter = rateLimit({
   message: { error: 'AI report generation rate limit exceeded' },
 });
 
-module.exports = { generalLimiter, authLimiter, aiLimiter };
+const webhookLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests' },
+});
+
+module.exports = { generalLimiter, authLimiter, aiLimiter, webhookLimiter };

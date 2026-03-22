@@ -43,7 +43,7 @@ app.use(cors({
     // Allow requests with no Origin (native mobile apps, curl, server-to-server)
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
-    cb(new Error(`CORS: origin '${origin}' not allowed`));
+    cb(new Error('CORS: origin not allowed'));
   },
   credentials: true,
 }));

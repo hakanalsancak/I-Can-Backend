@@ -1,5 +1,12 @@
 const { query } = require('../config/database');
 
+function abbreviateName(fullName) {
+  if (!fullName) return 'Athlete';
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length <= 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
+
 const EFFECTIVE_STREAK_SQL = `
   CASE
     WHEN u.email LIKE '%@ican.seed' THEN s.current_streak
@@ -48,7 +55,7 @@ exports.getGlobalLeaderboard = async (req, res, next) => {
       leaderboard: top100.rows.map(row => ({
         rank: parseInt(row.rank),
         userId: row.user_id,
-        fullName: row.full_name,
+        fullName: row.user_id === userId ? row.full_name : abbreviateName(row.full_name),
         sport: row.sport,
         country: row.country,
         currentStreak: row.current_streak,
@@ -111,7 +118,7 @@ exports.getCountryLeaderboard = async (req, res, next) => {
       leaderboard: top100.rows.map(row => ({
         rank: parseInt(row.rank),
         userId: row.user_id,
-        fullName: row.full_name,
+        fullName: row.user_id === userId ? row.full_name : abbreviateName(row.full_name),
         sport: row.sport,
         country: row.country,
         currentStreak: row.current_streak,
