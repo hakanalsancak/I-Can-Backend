@@ -10,6 +10,10 @@ function generateTokens(userId) {
   return { accessToken, refreshToken };
 }
 
+// Pre-computed dummy hash (cost 12) for constant-time login comparison
+// Prevents timing attacks that reveal whether an email is registered
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('timing-safe-dummy-value', 12);
+
 const MAX_REFRESH_TOKENS_PER_USER = 5;
 
 async function storeRefreshToken(userId, refreshToken) {
@@ -126,16 +130,19 @@ exports.login = async (req, res, next) => {
     }
 
     const result = await query('SELECT * FROM users WHERE email = $1', [email]);
-    if (result.rows.length === 0) {
+    const user = result.rows[0];
+
+    // Always run bcrypt comparison to prevent timing-based user enumeration.
+    // When user doesn't exist or has no password, compare against a dummy hash
+    // so the response time is indistinguishable from a real comparison.
+    const valid = await bcrypt.compare(password, user?.password_hash || DUMMY_PASSWORD_HASH);
+
+    if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    const user = result.rows[0];
     if (!user.password_hash) {
       return res.status(401).json({ error: 'Account uses social login' });
     }
-
-    const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
