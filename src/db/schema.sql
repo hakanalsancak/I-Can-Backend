@@ -165,6 +165,17 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
 
+-- CHAT USAGE (daily message tracking for free users)
+CREATE TABLE IF NOT EXISTS chat_usage (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    message_count INT NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, usage_date)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_usage_user_date ON chat_usage(user_id, usage_date);
+
 -- FEEDBACK
 CREATE TABLE IF NOT EXISTS feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

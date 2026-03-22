@@ -29,11 +29,33 @@ FORMATTING:
 SPORTS ONLY:
 You only talk about sports-related stuff. If someone asks about homework, politics, coding, whatever — just brush it off naturally and steer back to sports. Don't give the same canned response every time, keep it casual and varied.`;
 
+const FREE_DAILY_LIMIT = 7;
+
 exports.chat = async (req, res, next) => {
   try {
     const isPremium = await checkPremiumAccess(req.userId);
+
+    // For free users, enforce daily message limit
+    let remaining = null; // null = unlimited (premium)
     if (!isPremium) {
-      return res.status(403).json({ error: 'Premium subscription required', code: 'PREMIUM_REQUIRED' });
+      const usageResult = await query(
+        'SELECT message_count FROM chat_usage WHERE user_id = $1 AND usage_date = CURRENT_DATE',
+        [req.userId]
+      );
+      const currentCount = usageResult.rows.length > 0 ? usageResult.rows[0].message_count : 0;
+
+      if (currentCount >= FREE_DAILY_LIMIT) {
+        // Calculate reset time (next midnight UTC)
+        const now = new Date();
+        const resetAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
+        return res.status(429).json({
+          error: 'Daily message limit reached',
+          code: 'DAILY_LIMIT_EXCEEDED',
+          resetAt: resetAt.toISOString()
+        });
+      }
+
+      remaining = FREE_DAILY_LIMIT - currentCount - 1; // -1 for the current message
     }
 
     const { message, history } = req.body;
@@ -89,7 +111,22 @@ exports.chat = async (req, res, next) => {
       .replace(/^#{1,6}\s+/gm, '')
       .replace(/^[-•]\s+/gm, '');
 
-    res.json({ reply });
+    // Track usage for free users
+    if (!isPremium) {
+      await query(
+        `INSERT INTO chat_usage (user_id, usage_date, message_count)
+         VALUES ($1, CURRENT_DATE, 1)
+         ON CONFLICT (user_id, usage_date)
+         DO UPDATE SET message_count = chat_usage.message_count + 1, updated_at = NOW()`,
+        [req.userId]
+      );
+    }
+
+    const response = { reply };
+    if (remaining !== null) {
+      response.remaining = remaining;
+    }
+    res.json(response);
   } catch (err) {
     next(err);
   }
