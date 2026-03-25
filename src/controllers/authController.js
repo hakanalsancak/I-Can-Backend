@@ -310,7 +310,7 @@ exports.refreshToken = async (req, res, next) => {
   }
 };
 
-const VALID_GENDERS = ['male', 'female', 'non-binary', 'prefer_not_to_say'];
+const VALID_GENDERS = ['male', 'female', 'non-binary', 'other', 'prefer_not_to_say'];
 const VALID_NOTIFICATION_FREQUENCIES = [0, 1, 2, 3];
 const COUNTRY_RE = /^[A-Za-z]{2}$/;
 const USERNAME_RE = /^[a-zA-Z0-9._]+$/;
