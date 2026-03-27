@@ -170,13 +170,16 @@ exports.verifyReceipt = async (req, res, next) => {
     }
 
     // Prevent receipt replay: reject if this transaction is already used by a different user
+    // Skip in StoreKit testing mode — Xcode reuses transaction IDs across simulator resets
     const txId = originalTransactionId || transactionId;
-    const existingTx = await query(
-      'SELECT user_id FROM subscriptions WHERE apple_transaction_id = $1 AND user_id != $2',
-      [txId, req.userId]
-    );
-    if (existingTx.rows.length > 0) {
-      return res.status(409).json({ error: 'This transaction is already associated with another account' });
+    if (process.env.APPLE_STOREKIT_TESTING !== 'true') {
+      const existingTx = await query(
+        'SELECT user_id FROM subscriptions WHERE apple_transaction_id = $1 AND user_id != $2',
+        [txId, req.userId]
+      );
+      if (existingTx.rows.length > 0) {
+        return res.status(409).json({ error: 'This transaction is already associated with another account' });
+      }
     }
 
     // Use Apple's authoritative expiration date from the JWS payload
