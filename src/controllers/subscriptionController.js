@@ -83,8 +83,8 @@ function verifyAppleJWS(jwsRepresentation) {
 }
 
 const VALID_PRODUCT_IDS = new Set([
-  'com.hakanalsancak.ican.premium.monthly',
-  'com.hakanalsancak.ican.premium.yearly',
+  'com.ican.premium.monthly',
+  'com.ican.premium.yearly',
 ]);
 
 exports.getStatus = async (req, res, next) => {
