@@ -241,6 +241,49 @@ exports.generateInsight = async (req, res, next) => {
       return res.status(400).json({ error: 'Activity type is required' });
     }
 
+    const VALID_INSIGHT_TYPES = ['Training', 'Game', 'Rest Day', 'Other'];
+    if (!VALID_INSIGHT_TYPES.includes(activityType)) {
+      return res.status(400).json({ error: `Activity type must be one of: ${VALID_INSIGHT_TYPES.join(', ')}` });
+    }
+
+    // Validate string fields
+    const MAX_FIELD = 500;
+    const stringFields = { skillImproved, hardestDrill, commonMistake, tomorrowFocus, bestMoment, biggestMistake, improveNextGame, sportStudy, restTomorrowFocus, reflectionPositive, reflectionImprove, proudMoment };
+    for (const [key, val] of Object.entries(stringFields)) {
+      if (val != null && (typeof val !== 'string' || val.length > MAX_FIELD)) {
+        return res.status(400).json({ error: `${key} must be a string of ${MAX_FIELD} characters or less` });
+      }
+    }
+
+    // Validate array fields
+    const arrayFields = { trainingAreas, recoveryActivities };
+    for (const [key, val] of Object.entries(arrayFields)) {
+      if (val != null) {
+        if (!Array.isArray(val) || val.length > 10) {
+          return res.status(400).json({ error: `${key} must be an array with at most 10 items` });
+        }
+        if (val.some(item => typeof item !== 'string' || item.length > 100)) {
+          return res.status(400).json({ error: `Each item in ${key} must be a string of 100 characters or less` });
+        }
+      }
+    }
+
+    // Validate gameStats
+    if (gameStats != null) {
+      if (typeof gameStats !== 'object' || Array.isArray(gameStats)) {
+        return res.status(400).json({ error: 'gameStats must be an object' });
+      }
+      const keys = Object.keys(gameStats);
+      if (keys.length > 20) {
+        return res.status(400).json({ error: 'gameStats must have at most 20 keys' });
+      }
+      for (const v of Object.values(gameStats)) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) {
+          return res.status(400).json({ error: 'gameStats values must be finite numbers' });
+        }
+      }
+    }
+
     let logSummary = `Activity: ${activityType}\n`;
 
     if (activityType === 'Training') {
@@ -301,7 +344,8 @@ Rules:
     const insight = completion.choices[0]?.message?.content?.trim() || '';
     res.json({ insight });
   } catch (err) {
-    console.error('Insight generation error:', err.message);
+    const safeMsg = (err.message || '').replace(/https?:\/\/[^\s]+/g, '[URL]').replace(/sk-[a-zA-Z0-9]+/g, '[KEY]');
+    console.error('Insight generation error:', safeMsg);
     res.status(503).json({ error: 'Insight generation temporarily unavailable', insight: '' });
   }
 };
