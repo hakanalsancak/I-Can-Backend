@@ -179,7 +179,7 @@ exports.getPendingRequests = async (req, res, next) => {
   try {
     const result = await query(
       `SELECT fr.id, fr.sender_id, fr.created_at,
-              u.username, u.full_name, u.sport,
+              u.username, u.full_name, u.sport, u.team, u.position, u.country,
               u.profile_photo_url, s.current_streak
        FROM friend_requests fr
        JOIN users u ON u.id = fr.sender_id
@@ -198,6 +198,9 @@ exports.getPendingRequests = async (req, res, next) => {
         username: r.username,
         fullName: r.full_name,
         sport: r.sport,
+        team: r.team,
+        position: r.position,
+        country: r.country,
         profilePhotoUrl: r.profile_photo_url || null,
         currentStreak: r.current_streak || 0,
       },
