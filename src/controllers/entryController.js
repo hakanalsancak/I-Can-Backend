@@ -50,6 +50,20 @@ exports.submitEntry = async (req, res, next) => {
     return res.status(400).json({ error: 'entryDate must be in YYYY-MM-DD format' });
   }
 
+  const entryDateObj = new Date(entryDate + 'T00:00:00Z');
+  if (isNaN(entryDateObj.getTime())) {
+    return res.status(400).json({ error: 'Invalid date' });
+  }
+  const now = new Date();
+  const oneYearAgo = new Date(now);
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(23, 59, 59, 999);
+  if (entryDateObj < oneYearAgo || entryDateObj > tomorrow) {
+    return res.status(400).json({ error: 'Entry date must be within the last year and not in the future' });
+  }
+
   // Validate and coerce rating fields to numbers
   const focus = Number(focusRating);
   const effort = Number(effortRating);
@@ -237,8 +251,50 @@ exports.generateInsight = async (req, res, next) => {
       reflectionPositive, reflectionImprove, proudMoment,
     } = req.body;
 
-    if (!activityType) {
-      return res.status(400).json({ error: 'Activity type is required' });
+    const VALID_INSIGHT_TYPES = ['Training', 'Game', 'Rest Day', 'Other'];
+    if (!activityType || !VALID_INSIGHT_TYPES.includes(activityType)) {
+      return res.status(400).json({ error: `Activity type must be one of: ${VALID_INSIGHT_TYPES.join(', ')}` });
+    }
+
+    // Validate string fields
+    const MAX_FIELD = 500;
+    const stringFields = { skillImproved, hardestDrill, commonMistake, tomorrowFocus, bestMoment, biggestMistake, improveNextGame, sportStudy, restTomorrowFocus, reflectionPositive, reflectionImprove, proudMoment };
+    for (const [label, val] of Object.entries(stringFields)) {
+      if (val !== undefined && val !== null && (typeof val !== 'string' || val.length > MAX_FIELD)) {
+        return res.status(400).json({ error: `${label} must be a string of ${MAX_FIELD} characters or less` });
+      }
+    }
+
+    // Validate array fields
+    const MAX_ARRAY = 10;
+    const MAX_ARRAY_ITEM = 100;
+    for (const [label, arr] of [['trainingAreas', trainingAreas], ['recoveryActivities', recoveryActivities]]) {
+      if (arr !== undefined && arr !== null) {
+        if (!Array.isArray(arr) || arr.length > MAX_ARRAY) {
+          return res.status(400).json({ error: `${label} must be an array with at most ${MAX_ARRAY} items` });
+        }
+        for (const item of arr) {
+          if (typeof item !== 'string' || item.length > MAX_ARRAY_ITEM) {
+            return res.status(400).json({ error: `Each item in ${label} must be a string of ${MAX_ARRAY_ITEM} characters or less` });
+          }
+        }
+      }
+    }
+
+    // Validate gameStats
+    if (gameStats !== undefined && gameStats !== null) {
+      if (typeof gameStats !== 'object' || Array.isArray(gameStats)) {
+        return res.status(400).json({ error: 'gameStats must be an object' });
+      }
+      const keys = Object.keys(gameStats);
+      if (keys.length > 20) {
+        return res.status(400).json({ error: 'gameStats must have at most 20 keys' });
+      }
+      for (const val of Object.values(gameStats)) {
+        if (typeof val !== 'number' || !Number.isFinite(val)) {
+          return res.status(400).json({ error: 'gameStats values must be finite numbers' });
+        }
+      }
     }
 
     let logSummary = `Activity: ${activityType}\n`;
@@ -301,7 +357,11 @@ Rules:
     const insight = completion.choices[0]?.message?.content?.trim() || '';
     res.json({ insight });
   } catch (err) {
-    console.error('Insight generation error:', err.message);
+    const safeMessage = (err.message || '')
+      .replace(/postgresql:\/\/[^\s]*/gi, '[DB_URL]')
+      .replace(/Bearer\s+\S+/gi, 'Bearer [TOKEN]')
+      .replace(/password[=:]\s*\S+/gi, 'password=[REDACTED]');
+    console.error('Insight generation error:', safeMessage);
     res.status(503).json({ error: 'Insight generation temporarily unavailable', insight: '' });
   }
 };
