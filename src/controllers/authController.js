@@ -179,6 +179,7 @@ exports.appleSignIn = async (req, res, next) => {
     }
 
     let result = await query('SELECT * FROM users WHERE apple_id = $1', [appleId]);
+    let isNewUser = false;
 
     if (result.rows.length === 0) {
       const name = fullName
@@ -206,6 +207,7 @@ exports.appleSignIn = async (req, res, next) => {
           'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
           [user.id]
         );
+        isNewUser = true;
       }
     }
 
@@ -213,6 +215,7 @@ exports.appleSignIn = async (req, res, next) => {
     const tokens = generateTokens(user.id);
     await storeRefreshToken(user.id, tokens.refreshToken);
     const response = await createUserResponse(user, tokens);
+    response.isNewUser = isNewUser;
     res.json(response);
   } catch (err) {
     next(err);
@@ -243,6 +246,7 @@ exports.googleSignIn = async (req, res, next) => {
     }
 
     let result = await query('SELECT * FROM users WHERE google_id = $1', [googleId]);
+    let isNewUser = false;
 
     if (result.rows.length === 0) {
       result = await query('SELECT * FROM users WHERE email = $1', [email]);
@@ -262,6 +266,7 @@ exports.googleSignIn = async (req, res, next) => {
           'INSERT INTO streaks (user_id, current_streak, longest_streak) VALUES ($1, 0, 0)',
           [user.id]
         );
+        isNewUser = true;
       }
     }
 
@@ -269,6 +274,7 @@ exports.googleSignIn = async (req, res, next) => {
     const tokens = generateTokens(user.id);
     await storeRefreshToken(user.id, tokens.refreshToken);
     const response = await createUserResponse(user, tokens);
+    response.isNewUser = isNewUser;
     res.json(response);
   } catch (err) {
     next(err);

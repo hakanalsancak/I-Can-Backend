@@ -1,5 +1,10 @@
 const { query, getClient } = require('../config/database');
 
+const EFFECTIVE_STREAK = `CASE
+  WHEN s.last_entry_date >= CURRENT_DATE - INTERVAL '1 day' THEN s.current_streak
+  ELSE 0
+END`;
+
 exports.searchUsers = async (req, res, next) => {
   try {
     const { q } = req.query;
@@ -12,7 +17,7 @@ exports.searchUsers = async (req, res, next) => {
     const seedSuffix = '%@ican.seed';
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
-              u.profile_photo_url, s.current_streak
+              u.profile_photo_url, ${EFFECTIVE_STREAK} AS current_streak
        FROM users u
        LEFT JOIN streaks s ON s.user_id = u.id
        WHERE u.id != $1
@@ -180,7 +185,7 @@ exports.getPendingRequests = async (req, res, next) => {
     const result = await query(
       `SELECT fr.id, fr.sender_id, fr.created_at,
               u.username, u.full_name, u.sport,
-              u.profile_photo_url, s.current_streak
+              u.profile_photo_url, ${EFFECTIVE_STREAK} AS current_streak
        FROM friend_requests fr
        JOIN users u ON u.id = fr.sender_id
        LEFT JOIN streaks s ON s.user_id = fr.sender_id
@@ -213,7 +218,7 @@ exports.getFriends = async (req, res, next) => {
   try {
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
-              u.profile_photo_url, s.current_streak
+              u.profile_photo_url, ${EFFECTIVE_STREAK} AS current_streak
        FROM friendships f
        JOIN users u ON u.id = f.friend_id
        LEFT JOIN streaks s ON s.user_id = f.friend_id
@@ -271,7 +276,7 @@ exports.getFriendProfile = async (req, res, next) => {
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
               u.competition_level, u.mantra, u.profile_photo_url,
-              s.current_streak, s.longest_streak
+              ${EFFECTIVE_STREAK} AS current_streak, s.longest_streak
        FROM users u
        LEFT JOIN streaks s ON s.user_id = u.id
        WHERE u.id = $1`,

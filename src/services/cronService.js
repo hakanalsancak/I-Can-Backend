@@ -67,16 +67,90 @@ async function generateReportsForPeriod(reportType, periodStart, periodEnd, minE
   return generated;
 }
 
+async function catchUpMissedReports() {
+  console.log('Checking for missed reports...');
+  const now = new Date();
+
+  // Check missed weekly: if today is Mon–Wed and no weekly report exists for last week
+  const dayOfWeek = now.getUTCDay(); // 0=Sun, 1=Mon, ...
+  if (dayOfWeek >= 1 && dayOfWeek <= 3) {
+    const lastSunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dayOfWeek));
+    const lastMonday = new Date(Date.UTC(lastSunday.getUTCFullYear(), lastSunday.getUTCMonth(), lastSunday.getUTCDate() - 6));
+    const periodStart = lastMonday.toISOString().split('T')[0];
+    const periodEnd = lastSunday.toISOString().split('T')[0];
+
+    const existing = await query(
+      "SELECT 1 FROM ai_reports WHERE report_type = 'weekly' AND period_start = $1 AND period_end = $2 LIMIT 1",
+      [periodStart, periodEnd]
+    );
+    if (existing.rows.length === 0) {
+      console.log(`Catching up missed weekly reports for ${periodStart} – ${periodEnd}`);
+      try {
+        const count = await generateReportsForPeriod('weekly', periodStart, periodEnd, 3);
+        console.log(`Catch-up: generated ${count} weekly reports`);
+      } catch (err) {
+        console.error('Catch-up weekly report error:', err.message);
+      }
+    }
+  }
+
+  // Check missed monthly: if we're in the first 3 days of the month
+  if (now.getUTCDate() <= 3) {
+    const prevMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const lastDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+    const periodStart = prevMonth.toISOString().split('T')[0];
+    const periodEnd = lastDay.toISOString().split('T')[0];
+
+    const existing = await query(
+      "SELECT 1 FROM ai_reports WHERE report_type = 'monthly' AND period_start = $1 AND period_end = $2 LIMIT 1",
+      [periodStart, periodEnd]
+    );
+    if (existing.rows.length === 0) {
+      console.log(`Catching up missed monthly reports for ${periodStart} – ${periodEnd}`);
+      try {
+        const count = await generateReportsForPeriod('monthly', periodStart, periodEnd, 10);
+        console.log(`Catch-up: generated ${count} monthly reports`);
+      } catch (err) {
+        console.error('Catch-up monthly report error:', err.message);
+      }
+    }
+  }
+
+  // Check missed yearly: if we're in the first 3 days of January
+  if (now.getUTCMonth() === 0 && now.getUTCDate() <= 3) {
+    const prevYear = now.getUTCFullYear() - 1;
+    const periodStart = `${prevYear}-01-01`;
+    const periodEnd = `${prevYear}-12-31`;
+
+    const existing = await query(
+      "SELECT 1 FROM ai_reports WHERE report_type = 'yearly' AND period_start = $1 AND period_end = $2 LIMIT 1",
+      [periodStart, periodEnd]
+    );
+    if (existing.rows.length === 0) {
+      console.log(`Catching up missed yearly reports for ${periodStart} – ${periodEnd}`);
+      try {
+        const count = await generateReportsForPeriod('yearly', periodStart, periodEnd, 50);
+        console.log(`Catch-up: generated ${count} yearly reports`);
+      } catch (err) {
+        console.error('Catch-up yearly report error:', err.message);
+      }
+    }
+  }
+
+  console.log('Missed report check complete');
+}
+
 function initCronJobs() {
+  // Run catch-up on startup (delayed 10s to let DB connections settle)
+  setTimeout(() => catchUpMissedReports().catch(err => console.error('Catch-up error:', err.message)), 10000);
+
   // Weekly: Monday 00:00 UTC — generates report for previous Mon-Sun
   cron.schedule('0 0 * * 1', async () => {
     console.log('Running weekly report generation...');
     try {
       const now = new Date();
-      const sunday = new Date(now);
-      sunday.setDate(now.getDate() - 1);
-      const monday = new Date(sunday);
-      monday.setDate(sunday.getDate() - 6);
+      const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+      const monday = new Date(Date.UTC(sunday.getUTCFullYear(), sunday.getUTCMonth(), sunday.getUTCDate() - 6));
 
       const periodStart = monday.toISOString().split('T')[0];
       const periodEnd = sunday.toISOString().split('T')[0];
@@ -86,15 +160,15 @@ function initCronJobs() {
     } catch (err) {
       console.error('Weekly report cron error:', err.message);
     }
-  });
+  }, { timezone: 'UTC' });
 
   // Monthly: 1st of month 00:00 UTC — generates report for previous month
   cron.schedule('0 0 1 * *', async () => {
     console.log('Running monthly report generation...');
     try {
       const now = new Date();
-      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+      const prevMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+      const lastDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
 
       const periodStart = prevMonth.toISOString().split('T')[0];
       const periodEnd = lastDay.toISOString().split('T')[0];
@@ -104,14 +178,14 @@ function initCronJobs() {
     } catch (err) {
       console.error('Monthly report cron error:', err.message);
     }
-  });
+  }, { timezone: 'UTC' });
 
   // Yearly: Jan 1 00:00 UTC — generates report for previous year
   cron.schedule('0 0 1 1 *', async () => {
     console.log('Running yearly report generation...');
     try {
       const now = new Date();
-      const prevYear = now.getFullYear() - 1;
+      const prevYear = now.getUTCFullYear() - 1;
       const periodStart = `${prevYear}-01-01`;
       const periodEnd = `${prevYear}-12-31`;
 
@@ -120,7 +194,7 @@ function initCronJobs() {
     } catch (err) {
       console.error('Yearly report cron error:', err.message);
     }
-  });
+  }, { timezone: 'UTC' });
 
   // Fake leaderboard users: daily at 00:05 UTC — increment streaks
   cron.schedule('5 0 * * *', async () => {
@@ -139,7 +213,7 @@ function initCronJobs() {
     } catch (err) {
       console.error('Fake streak cron error:', err.message);
     }
-  });
+  }, { timezone: 'UTC' });
 
   // Mark expired subscriptions: daily at 02:00 UTC
   cron.schedule('0 2 * * *', async () => {
@@ -158,7 +232,7 @@ function initCronJobs() {
     } catch (err) {
       console.error('Subscription expiration cron error:', err.message);
     }
-  });
+  }, { timezone: 'UTC' });
 
   // Clean up expired refresh tokens: daily at 03:00 UTC
   cron.schedule('0 3 * * *', async () => {
@@ -168,7 +242,7 @@ function initCronJobs() {
     } catch (err) {
       console.error('Refresh token cleanup cron error:', err.message);
     }
-  });
+  }, { timezone: 'UTC' });
 
   // Motivational quotes: hourly
   cron.schedule('0 * * * *', async () => {
@@ -196,9 +270,9 @@ function initCronJobs() {
     } catch (err) {
       console.error('Quote notification cron error:', err.message);
     }
-  });
+  }, { timezone: 'UTC' });
 
   console.log('Cron jobs initialized');
 }
 
-module.exports = { initCronJobs };
+module.exports = { initCronJobs, catchUpMissedReports };
