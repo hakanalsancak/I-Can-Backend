@@ -91,7 +91,7 @@ exports.getStatus = async (req, res, next) => {
   try {
     const userResult = await query('SELECT email FROM users WHERE id = $1', [req.userId]);
     const email = userResult.rows.length > 0 ? (userResult.rows[0].email || '') : '';
-    const isGuest = email.startsWith('guest_') && email.endsWith('@ican.app');
+    const isGuest = email.startsWith('guest_') && (email.endsWith('@ican.app') || email.endsWith('@guest.ican.app'));
     if (isGuest) {
       return res.json({ status: 'none', isPremium: false });
     }
@@ -137,7 +137,7 @@ exports.verifyReceipt = async (req, res, next) => {
     const userResult = await query('SELECT email FROM users WHERE id = $1', [req.userId]);
     if (userResult.rows.length > 0) {
       const email = userResult.rows[0].email || '';
-      if (email.startsWith('guest_') && email.endsWith('@ican.app')) {
+      if (email.startsWith('guest_') && (email.endsWith('@ican.app') || email.endsWith('@guest.ican.app'))) {
         return res.status(403).json({
           error: 'Create an account or sign in to subscribe. Guest accounts cannot store subscriptions.',
           code: 'GUEST_ACCOUNT',
@@ -167,6 +167,11 @@ exports.verifyReceipt = async (req, res, next) => {
       jwsPayload.productId !== productId
     ) {
       return res.status(400).json({ error: 'Transaction data mismatch' });
+    }
+
+    // Reject revoked transactions (payment failed, refunded, etc.)
+    if (jwsPayload.revocationDate) {
+      return res.status(400).json({ error: 'This transaction has been revoked' });
     }
 
     // Prevent receipt replay: reject if this transaction is already used by a different user
@@ -224,9 +229,17 @@ exports.verifyReceipt = async (req, res, next) => {
     );
 
     const sub = result.rows[0];
+    const now = new Date();
+    let subIsPremium = false;
+    if (sub.status === 'trial' && sub.trial_end && new Date(sub.trial_end) > now) {
+      subIsPremium = true;
+    } else if (sub.status === 'active' && sub.current_period_end && new Date(sub.current_period_end) > now) {
+      subIsPremium = true;
+    }
+
     res.json({
       status: sub.status,
-      isPremium: true,
+      isPremium: subIsPremium,
       trialEnd: sub.trial_end,
       currentPeriodEnd: sub.current_period_end,
       productId: sub.product_id,
@@ -310,6 +323,20 @@ exports.appleWebhook = async (req, res) => {
           "UPDATE subscriptions SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
           [subId]
         );
+        break;
+      }
+
+      case 'DID_FAIL_TO_RENEW': {
+        // Payment failed — if no grace period, expire immediately
+        if (subtype === 'GRACE_PERIOD') {
+          // Apple is retrying payment; keep premium during grace period
+          console.log(`Apple webhook: billing retry in grace period for subscription ${subId}`);
+        } else {
+          await query(
+            "UPDATE subscriptions SET status = 'expired', updated_at = NOW() WHERE id = $1",
+            [subId]
+          );
+        }
         break;
       }
 
