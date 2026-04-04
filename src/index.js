@@ -29,6 +29,9 @@ const feedbackRoutes = require('./routes/feedback');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust Render's reverse proxy so rate limiter identifies users by real IP
+app.set('trust proxy', 1);
+
 app.use(helmet({
   hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
 }));
