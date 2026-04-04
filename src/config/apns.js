@@ -7,24 +7,34 @@ let provider = null;
 function getProvider() {
   if (provider) return provider;
 
-  const keyPath = process.env.APNS_KEY_PATH || './certs/AuthKey.p8';
-  const resolvedKeyPath = path.resolve(keyPath);
-
-  if (!fs.existsSync(resolvedKeyPath)) {
-    console.warn(`APNS key not found at '${resolvedKeyPath}' — push notifications disabled`);
-    return null;
-  }
-
   if (!process.env.APNS_KEY_ID || !process.env.APNS_TEAM_ID) {
     console.warn('APNS_KEY_ID or APNS_TEAM_ID not set — push notifications disabled');
     return null;
+  }
+
+  // Support key as base64 env var (for platforms like Render with ephemeral filesystems)
+  // or as a file path
+  let keyOption;
+  if (process.env.APNS_KEY_BASE64) {
+    keyOption = Buffer.from(process.env.APNS_KEY_BASE64, 'base64');
+    console.log('APNS: using key from APNS_KEY_BASE64 env var');
+  } else {
+    const keyPath = process.env.APNS_KEY_PATH || './certs/AuthKey.p8';
+    const resolvedKeyPath = path.resolve(keyPath);
+
+    if (!fs.existsSync(resolvedKeyPath)) {
+      console.warn(`APNS key not found at '${resolvedKeyPath}' — push notifications disabled`);
+      console.warn('Set APNS_KEY_BASE64 env var with the base64-encoded .p8 key content');
+      return null;
+    }
+    keyOption = resolvedKeyPath;
   }
 
   console.log(`APNS provider initializing (production=${process.env.NODE_ENV === 'production'}, keyId=${process.env.APNS_KEY_ID})`);
 
   provider = new apn.Provider({
     token: {
-      key: resolvedKeyPath,
+      key: keyOption,
       keyId: process.env.APNS_KEY_ID,
       teamId: process.env.APNS_TEAM_ID,
     },
