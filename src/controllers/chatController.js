@@ -31,6 +31,8 @@ You only talk about sports-related stuff. If someone asks about homework, politi
 
 const FREE_DAILY_LIMIT = 7;
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 exports.chat = async (req, res, next) => {
   try {
     const isPremium = await checkPremiumAccess(req.userId);
@@ -58,12 +60,19 @@ exports.chat = async (req, res, next) => {
       remaining = FREE_DAILY_LIMIT - currentCount - 1; // -1 for the current message
     }
 
-    const { message, history } = req.body;
+    const { message, history, conversationId } = req.body;
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'Message is required' });
     }
     if (message.trim().length > 2000) {
       return res.status(400).json({ error: 'Message exceeds 2000 character limit' });
+    }
+
+    // Validate conversationId format if provided
+    if (conversationId !== undefined && conversationId !== null) {
+      if (typeof conversationId !== 'string' || !UUID_REGEX.test(conversationId)) {
+        return res.status(400).json({ error: 'Invalid conversationId format' });
+      }
     }
 
     const userResult = await query('SELECT sport, full_name, mantra FROM users WHERE id = $1', [req.userId]);
@@ -82,7 +91,35 @@ exports.chat = async (req, res, next) => {
 
     const messages = [{ role: 'system', content: systemContent }];
 
-    if (history && Array.isArray(history)) {
+    // Resolve or create conversation
+    let activeConversationId = null;
+
+    if (conversationId) {
+      // Verify the conversation belongs to this user
+      const convResult = await query(
+        'SELECT id FROM conversations WHERE id = $1 AND user_id = $2',
+        [conversationId, req.userId]
+      );
+      if (convResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+      activeConversationId = conversationId;
+
+      // Load last 10 messages from DB as history (most recent, in chronological order)
+      const dbMessages = await query(
+        `SELECT role, content FROM (
+           SELECT role, content, created_at FROM chat_messages
+           WHERE conversation_id = $1
+           ORDER BY created_at DESC
+           LIMIT 10
+         ) sub ORDER BY created_at ASC`,
+        [activeConversationId]
+      );
+      for (const msg of dbMessages.rows) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    } else if (history && Array.isArray(history)) {
+      // Backwards compatibility: use client-sent history if no conversationId
       const recent = history.slice(-10);
       for (const msg of recent) {
         if (
@@ -93,6 +130,16 @@ exports.chat = async (req, res, next) => {
           messages.push({ role: msg.role, content: msg.content });
         }
       }
+    }
+
+    // If no existing conversation, create one
+    if (!activeConversationId) {
+      const title = message.trim().substring(0, 100);
+      const convResult = await query(
+        'INSERT INTO conversations (user_id, title) VALUES ($1, $2) RETURNING id',
+        [req.userId, title]
+      );
+      activeConversationId = convResult.rows[0].id;
     }
 
     messages.push({ role: 'user', content: message.trim() });
@@ -111,6 +158,22 @@ exports.chat = async (req, res, next) => {
       .replace(/^#{1,6}\s+/gm, '')
       .replace(/^[-•]\s+/gm, '');
 
+    // Save both messages to DB (separate inserts to ensure distinct created_at ordering)
+    await query(
+      `INSERT INTO chat_messages (conversation_id, role, content) VALUES ($1, 'user', $2)`,
+      [activeConversationId, message.trim()]
+    );
+    await query(
+      `INSERT INTO chat_messages (conversation_id, role, content) VALUES ($1, 'assistant', $2)`,
+      [activeConversationId, reply]
+    );
+
+    // Update conversation timestamp
+    await query(
+      'UPDATE conversations SET updated_at = NOW() WHERE id = $1',
+      [activeConversationId]
+    );
+
     // Track usage for free users
     if (!isPremium) {
       await query(
@@ -122,7 +185,7 @@ exports.chat = async (req, res, next) => {
       );
     }
 
-    const response = { reply };
+    const response = { reply, conversationId: activeConversationId };
     if (remaining !== null) {
       response.remaining = remaining;
     }
