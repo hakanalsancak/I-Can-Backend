@@ -391,7 +391,7 @@ exports.completeOnboarding = async (req, res, next) => {
        username = COALESCE($13, username),
        onboarding_completed = TRUE, updated_at = NOW()
        WHERE id = $4 RETURNING *`,
-      [sport, mantra || null, notificationFrequency || 1, req.userId, fullName || null, age || null, country || null,
+      [sport, mantra || null, notificationFrequency ?? 1, req.userId, fullName || null, age || null, country || null,
        gender || null, team || null, competitionLevel || null, position || null, primaryGoal || null,
        username ? username.toLowerCase() : null]
     );

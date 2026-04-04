@@ -15,6 +15,13 @@ function getProvider() {
     return null;
   }
 
+  if (!process.env.APNS_KEY_ID || !process.env.APNS_TEAM_ID) {
+    console.warn('APNS_KEY_ID or APNS_TEAM_ID not set — push notifications disabled');
+    return null;
+  }
+
+  console.log(`APNS provider initializing (production=${process.env.NODE_ENV === 'production'}, keyId=${process.env.APNS_KEY_ID})`);
+
   provider = new apn.Provider({
     token: {
       key: resolvedKeyPath,
@@ -51,4 +58,4 @@ async function sendPush(deviceTokens, { title, body, data = {} }) {
   }
 }
 
-module.exports = { sendPush };
+module.exports = { sendPush, initProvider: getProvider };

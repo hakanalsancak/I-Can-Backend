@@ -141,6 +141,12 @@ async function catchUpMissedReports() {
 }
 
 function initCronJobs() {
+  console.log(`Initializing cron jobs (NODE_ENV=${process.env.NODE_ENV})`);
+
+  // Eagerly initialize APNS provider to surface config issues at startup
+  const { sendPush, initProvider } = require('../config/apns');
+  initProvider();
+
   // Run catch-up on startup (delayed 10s to let DB connections settle)
   setTimeout(() => catchUpMissedReports().catch(err => console.error('Catch-up error:', err.message)), 10000);
 
@@ -253,20 +259,34 @@ function initCronJobs() {
       if (slotIndex === -1) return;
 
       const requiredFrequency = slotIndex + 1;
+      console.log(`Motivational quote cron firing at UTC hour ${currentHour}, requiredFrequency=${requiredFrequency}`);
+
       const users = await getUsersForNotification(requiredFrequency);
+      console.log(`Found ${users.length} users for motivational quotes`);
+
+      if (users.length === 0) return;
 
       const { sendPush } = require('../config/apns');
+      let sent = 0;
+      let failed = 0;
       for (const user of users) {
-        const quote = getRandomQuote();
-        if (user.token) {
-          await sendPush([user.token], {
-            title: 'I Can',
-            body: quote,
-            data: { type: 'motivational_quote' },
-          });
+        try {
+          const quote = getRandomQuote();
+          if (user.token) {
+            await sendPush([user.token], {
+              title: 'I Can',
+              body: quote,
+              data: { type: 'motivational_quote' },
+            });
+            sent++;
+          }
+          await logNotification(user.id, 'motivational_quote', quote);
+        } catch (userErr) {
+          failed++;
+          console.error(`Quote push failed for user ${user.id}:`, userErr.message);
         }
-        await logNotification(user.id, 'motivational_quote', quote);
       }
+      console.log(`Motivational quotes: ${sent} sent, ${failed} failed out of ${users.length} users`);
     } catch (err) {
       console.error('Quote notification cron error:', err.message);
     }
