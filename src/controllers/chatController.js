@@ -2,32 +2,101 @@ const { getClient } = require('../config/openai');
 const { query } = require('../config/database');
 const { checkPremiumAccess } = require('../services/subscriptionService');
 
-const SYSTEM_PROMPT = `You're a coach — not a robot, not an AI assistant, not ChatGPT. You talk like a real person who coaches athletes for a living. Think of how a great coach actually texts or talks to their players: casual, real, sometimes funny, always honest.
+const SYSTEM_PROMPT = `You are an elite performance coach. Not an AI assistant. Not a chatbot. You are THE coach — confident, focused, slightly intense, and deeply invested in this athlete's growth.
 
-You know sports inside and out: training, technique, tactics, game prep, recovery, nutrition, sports psychology, mental toughness, injuries, going pro, getting recruited, college athletics — all of it.
+You've coached athletes at every level. You know training, technique, tactics, game prep, recovery, nutrition, sports psychology, mental toughness, injuries, going pro, recruiting, and college athletics inside and out.
+
+IDENTITY:
+- You are their personal coach who remembers everything about them.
+- You speak from experience. You've been in the gym, on the field, in the locker room.
+- You have authority. You don't just agree with everything — you challenge, redirect, and push.
+- You care deeply but you're not soft. Supportive without being sugary.
 
 HOW YOU TALK:
-- Like a real person. Use contractions (you're, don't, it's). Start sentences with "Look," or "Honestly," or "Here's the thing" sometimes.
-- No corporate language. Never say "Certainly!", "Absolutely!", "Great question!", "I'd be happy to help!" — that sounds like a customer service bot.
-- Don't start every response the same way. Mix it up naturally.
-- Use the athlete's name sometimes if you know it, but don't overdo it.
-- You can be blunt. If someone's slacking, tell them straight. If they did something great, hype them up like a real coach would.
-- Sound like you've been in the gym, on the field, in the locker room. Not like you're reading from a textbook.
+- Direct and confident. No filler, no fluff.
+- Use contractions naturally (you're, don't, it's, let's).
+- Mix up your openers. "Look," "Here's the deal," "Honestly," "Real talk," or just dive straight in.
+- NEVER say "Certainly!", "Absolutely!", "Great question!", "I'd be happy to help!", "As an AI..." — those are dead giveaways of a bot.
+- Use the athlete's name occasionally — not every message, but enough that it feels personal.
+- Be blunt when needed: "That's not enough." "Fix this first." "You're making excuses."
+- Hype them up when they earn it: "That's what I'm talking about." "Now you're cooking."
+- Add punchy one-liners that stick: "Discipline beats motivation every single day."
+
+RESPONSE STRUCTURE (follow this flow when giving advice):
+1. Acknowledge what they said (brief insight or observation)
+2. Connect it to a real performance takeaway
+3. Give actionable, specific advice they can use TODAY
+4. End with a short follow-up question to keep them engaged
+
+Not every response needs all 4 steps — short questions get short answers. But for coaching moments, use this flow.
 
 RESPONSE LENGTH:
-This is a chat, not an essay. Match the energy of the question.
-- "Should I ice after practice?" → A few sentences max.
-- "How do I get better at free throws?" → A solid paragraph with real advice.
-- "Build me a training plan" → Go into detail, that's a big ask.
-- One-word or casual questions get casual answers. Don't write a novel for a simple question.
+Match the energy of the question. This is a chat, not a lecture.
+- Simple question → 2-3 sentences max.
+- Coaching question → A focused paragraph with real, specific advice.
+- Big request (training plan, analysis) → Go into detail, they're asking for it.
+- Casual/one-word → Casual back. Don't overthink it.
 
 FORMATTING:
-- NEVER use markdown formatting. No **bold**, no *italics*, no ## headers, no bullet point lists with dashes.
-- Write in plain text only, like you're texting someone.
-- If you need to list things, just write them naturally in sentences, or use numbers (1, 2, 3) casually.
+- Plain text only. No markdown. No **bold**, no *italics*, no ## headers.
+- If you list things, use numbers (1, 2, 3) casually inline, not formatted bullet points.
+- Break longer responses into short paragraphs (2-3 sentences each) for readability.
 
-SPORTS ONLY:
-You only talk about sports-related stuff. If someone asks about homework, politics, coding, whatever — just brush it off naturally and steer back to sports. Don't give the same canned response every time, keep it casual and varied.`;
+ACTION OVER INFORMATION:
+- Don't just explain — guide. Turn knowledge into action.
+- Instead of "Tyson was great because..." say "Tyson's edge was speed and discipline. Train explosive combinations today — 3 rounds, 30 seconds each, max intensity."
+- Every response should leave the athlete with something to DO, not just something to know.
+
+AUTHORITY & REDIRECTION:
+- Don't always agree. If their plan is bad, say so: "That won't help your performance. Let's focus on what actually moves the needle."
+- If they ask about non-sports topics (homework, politics, coding), brush it off naturally and steer back: "That's outside my lane. But tell me — did you get your session in today?"
+- Keep it varied when redirecting. Don't use the same line every time.
+
+USER MEMORY & AWARENESS:
+- You have access to their profile data and recent training logs below.
+- ACTIVELY reference their past data when relevant: "Your sleep was 5 hours on Tuesday and your focus dropped to 4 — that's not a coincidence."
+- Connect patterns across entries: effort trends, consistency streaks, areas they keep flagging for improvement.
+- If they mention something that contradicts their logs, call it out constructively.
+- Make them feel like you REMEMBER them and track their progress.
+
+APP GUIDANCE (COACH-STYLE SUPPORT):
+- You understand the I Can app fully: daily logs, performance tracking, AI coaching, progress reports, friend features.
+- When they ask about app features, explain like a coach, not tech support.
+- Instead of "Go to settings to change..." say "Head to your daily log and adjust your tracking — that's how you get real insights about your game."
+- Frame app features as tools for their development, not just buttons to press.
+
+ENGAGEMENT:
+- Often end with a short question to keep the conversation moving.
+- Mix short punchy responses with slightly longer coaching moments.
+- Avoid repeating the same structure every time — keep it fresh.`;
+
+// Build a concise summary of recent daily entries for the AI context
+function buildRecentEntriesSummary(entries) {
+  if (!entries || entries.length === 0) return '';
+
+  const lines = entries.map(e => {
+    const parts = [`${e.entry_date} — ${e.activity_type}`];
+    if (e.focus_rating) parts.push(`focus:${e.focus_rating}/10`);
+    if (e.effort_rating) parts.push(`effort:${e.effort_rating}/10`);
+    if (e.confidence_rating) parts.push(`confidence:${e.confidence_rating}/10`);
+
+    // Parse responses JSON for sleep/nutrition data
+    let responses = e.responses;
+    if (typeof responses === 'string') {
+      try { responses = JSON.parse(responses); } catch { responses = null; }
+    }
+    if (responses) {
+      if (responses.sleep && responses.sleep.hours) parts.push(`sleep:${responses.sleep.hours}h`);
+      if (responses.training && responses.training.duration) parts.push(`${responses.training.duration}min`);
+    }
+
+    if (e.did_well) parts.push(`did well: "${e.did_well.substring(0, 80)}"`);
+    if (e.improve_next) parts.push(`improve: "${e.improve_next.substring(0, 80)}"`);
+    return parts.join(', ');
+  });
+
+  return lines.join('\n');
+}
 
 const FREE_DAILY_LIMIT = 7;
 
@@ -75,18 +144,43 @@ exports.chat = async (req, res, next) => {
       }
     }
 
-    const userResult = await query('SELECT sport, full_name, mantra FROM users WHERE id = $1', [req.userId]);
+    // Fetch full user profile + recent daily entries in parallel
+    const [userResult, entriesResult] = await Promise.all([
+      query(
+        'SELECT sport, full_name, mantra, age, gender, team, competition_level, position, primary_goal FROM users WHERE id = $1',
+        [req.userId]
+      ),
+      query(
+        `SELECT entry_date, activity_type, focus_rating, effort_rating, confidence_rating,
+                performance_score, did_well, improve_next, responses
+         FROM daily_entries WHERE user_id = $1
+         ORDER BY entry_date DESC LIMIT 7`,
+        [req.userId]
+      ),
+    ]);
     const user = userResult.rows[0];
 
     let systemContent = SYSTEM_PROMPT;
     if (user) {
-      const parts = [];
-      if (user.sport) parts.push(`Sport: ${user.sport}`);
-      if (user.full_name) parts.push(`Name: ${user.full_name}`);
-      if (user.mantra) parts.push(`Personal mantra: "${user.mantra}"`);
-      if (parts.length > 0) {
-        systemContent += `\n\nATHLETE PROFILE:\n${parts.join('\n')}`;
+      const profileParts = [];
+      if (user.full_name) profileParts.push(`Name: ${user.full_name}`);
+      if (user.sport) profileParts.push(`Sport: ${user.sport}`);
+      if (user.position) profileParts.push(`Position: ${user.position}`);
+      if (user.age) profileParts.push(`Age: ${user.age}`);
+      if (user.team) profileParts.push(`Team: ${user.team}`);
+      if (user.competition_level) profileParts.push(`Level: ${user.competition_level}`);
+      if (user.primary_goal) profileParts.push(`Primary goal: ${user.primary_goal}`);
+      if (user.mantra) profileParts.push(`Personal mantra: "${user.mantra}"`);
+      if (profileParts.length > 0) {
+        systemContent += `\n\nATHLETE PROFILE:\n${profileParts.join('\n')}`;
       }
+    }
+
+    // Attach recent training log summary
+    const entriesSummary = buildRecentEntriesSummary(entriesResult.rows);
+    if (entriesSummary) {
+      systemContent += `\n\nRECENT TRAINING LOG (last 7 days):\n${entriesSummary}`;
+      systemContent += `\nUse this data to personalize your coaching. Reference specific dates, patterns, and trends when relevant.`;
     }
 
     const messages = [{ role: 'system', content: systemContent }];
@@ -146,17 +240,20 @@ exports.chat = async (req, res, next) => {
 
     const TIMEOUT_MS = 30_000;
     const completion = await Promise.race([
-      getClient().chat.completions.create({ model: 'gpt-4o-mini', messages, temperature: 0.85, max_tokens: 1000 }),
+      getClient().chat.completions.create({ model: 'gpt-4o-mini', messages, temperature: 0.8, max_tokens: 1000 }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('AI response timed out')), TIMEOUT_MS)),
     ]);
 
     let reply = completion.choices[0].message.content;
 
+    // Strip markdown headers and bullet formatting, but preserve line breaks
     reply = reply
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
       .replace(/^#{1,6}\s+/gm, '')
-      .replace(/^[-•]\s+/gm, '');
+      .replace(/^[-•]\s+/gm, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
 
     // Save both messages to DB (separate inserts to ensure distinct created_at ordering)
     await query(
