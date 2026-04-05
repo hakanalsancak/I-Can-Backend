@@ -40,7 +40,7 @@ exports.submitEntry = async (req, res, next) => {
     return res.status(400).json({ error: 'Entry date and activity type are required' });
   }
 
-  const VALID_ACTIVITY_TYPES = ['training', 'game', 'rest_day', 'other'];
+  const VALID_ACTIVITY_TYPES = ['training', 'game', 'rest_day', 'other', 'daily_log'];
   if (!VALID_ACTIVITY_TYPES.includes(activityType)) {
     return res.status(400).json({ error: `Activity type must be one of: ${VALID_ACTIVITY_TYPES.join(', ')}` });
   }
@@ -218,6 +218,123 @@ exports.getEntryByDate = async (req, res, next) => {
     }
 
     res.json(formatEntry(result.rows[0]));
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getAnalytics = async (req, res, next) => {
+  try {
+    const { period } = req.query; // 'week' or 'month'
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+    let startDate, endDate;
+    const now = new Date();
+
+    if (period === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      endDate = now.toISOString().split('T')[0];
+    } else {
+      // Default to week
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+      startDate = weekStart.toISOString().split('T')[0];
+      endDate = now.toISOString().split('T')[0];
+    }
+
+    // Get entries in range
+    const result = await query(
+      `SELECT entry_date, activity_type, responses, performance_score, focus_rating, effort_rating, confidence_rating
+       FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3
+       ORDER BY entry_date ASC`,
+      [req.userId, startDate, endDate]
+    );
+
+    const entries = result.rows;
+    let totalDays = 0;
+    let trainingSessions = 0;
+    let nutritionDays = 0;
+    let sleepDays = 0;
+    let totalSleepHours = 0;
+    let completionSum = 0;
+    const dailyData = [];
+
+    for (const e of entries) {
+      const dateStr = formatDate(e.entry_date);
+      totalDays++;
+
+      if (e.activity_type === 'daily_log' && e.responses) {
+        const r = typeof e.responses === 'string' ? JSON.parse(e.responses) : e.responses;
+        const sections = r.completedSections || [];
+        completionSum += sections.length;
+
+        const hasTraining = sections.includes('training');
+        const hasNutrition = sections.includes('nutrition');
+        const hasSleep = sections.includes('sleep');
+
+        if (hasTraining) trainingSessions++;
+        if (hasNutrition) nutritionDays++;
+        if (hasSleep) {
+          sleepDays++;
+          if (r.sleep && r.sleep.sleepTime && r.sleep.wakeTime) {
+            const sleepParts = r.sleep.sleepTime.split(':').map(Number);
+            const wakeParts = r.sleep.wakeTime.split(':').map(Number);
+            let sleepMin = sleepParts[0] * 60 + (sleepParts[1] || 0);
+            let wakeMin = wakeParts[0] * 60 + (wakeParts[1] || 0);
+            let diff = wakeMin - sleepMin;
+            if (diff < 0) diff += 24 * 60;
+            totalSleepHours += diff / 60;
+          }
+        }
+
+        dailyData.push({
+          date: dateStr,
+          completion: sections.length,
+          training: hasTraining,
+          nutrition: hasNutrition,
+          sleep: hasSleep,
+          sleepHours: hasSleep && r.sleep ? (() => {
+            const sp = (r.sleep.sleepTime || '').split(':').map(Number);
+            const wp = (r.sleep.wakeTime || '').split(':').map(Number);
+            let d = (wp[0] * 60 + (wp[1] || 0)) - (sp[0] * 60 + (sp[1] || 0));
+            if (d < 0) d += 24 * 60;
+            return Math.round(d / 6) / 10;
+          })() : null,
+        });
+      } else {
+        // V1 entries count as training
+        trainingSessions++;
+        completionSum += 1;
+        dailyData.push({
+          date: dateStr,
+          completion: 1,
+          training: true,
+          nutrition: false,
+          sleep: false,
+          sleepHours: null,
+        });
+      }
+    }
+
+    // Calculate expected days in range
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const expectedDays = Math.ceil((end - start) / 86400000) + 1;
+
+    res.json({
+      period: period || 'week',
+      startDate,
+      endDate,
+      totalDays,
+      expectedDays,
+      trainingSessions,
+      nutritionDays,
+      sleepDays,
+      avgSleepHours: sleepDays > 0 ? Math.round((totalSleepHours / sleepDays) * 10) / 10 : null,
+      avgCompletion: totalDays > 0 ? Math.round((completionSum / (totalDays * 3)) * 100) : 0,
+      consistencyPercent: Math.round((totalDays / expectedDays) * 100),
+      dailyData,
+    });
   } catch (err) {
     next(err);
   }
