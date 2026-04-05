@@ -143,7 +143,7 @@ function buildRecentEntriesSummary(entries) {
   return lines.join('\n');
 }
 
-const FREE_DAILY_LIMIT = 7;
+const FREE_DAILY_LIMIT = 15;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
