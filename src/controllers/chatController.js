@@ -38,7 +38,8 @@ Match the energy of the question. This is a chat, not a lecture.
 - Casual/one-word → Casual back. Don't overthink it.
 
 FORMATTING:
-- Plain text only. No markdown. No **bold**, no *italics*, no ## headers.
+- You can use **bold** to emphasize key phrases, action items, or section titles. Keep it selective — bold the important stuff, not everything.
+- No *italics*, no ## headers, no bullet point lists with dashes.
 - If you list things, use numbers (1, 2, 3) casually inline, not formatted bullet points.
 - Break longer responses into short paragraphs (2-3 sentences each) for readability.
 
@@ -246,10 +247,9 @@ exports.chat = async (req, res, next) => {
 
     let reply = completion.choices[0].message.content;
 
-    // Strip markdown headers and bullet formatting, but preserve line breaks
+    // Strip markdown formatting except **bold**, preserve line breaks
     reply = reply
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1') // strip single *italics* but not **bold**
       .replace(/^#{1,6}\s+/gm, '')
       .replace(/^[-•]\s+/gm, '')
       .replace(/\n{3,}/g, '\n\n')
