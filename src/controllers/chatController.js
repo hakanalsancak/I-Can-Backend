@@ -71,29 +71,73 @@ ENGAGEMENT:
 - Mix short punchy responses with slightly longer coaching moments.
 - Avoid repeating the same structure every time — keep it fresh.`;
 
-// Build a concise summary of recent daily entries for the AI context
+// Calculate sleep duration from HH:mm times
+function calcSleepHours(sleepTime, wakeTime) {
+  if (!sleepTime || !wakeTime) return null;
+  const [sh, sm] = sleepTime.split(':').map(Number);
+  const [wh, wm] = wakeTime.split(':').map(Number);
+  if (isNaN(sh) || isNaN(sm) || isNaN(wh) || isNaN(wm)) return null;
+  let sleepMin = sh * 60 + sm;
+  let wakeMin = wh * 60 + wm;
+  if (wakeMin <= sleepMin) wakeMin += 24 * 60; // crossed midnight
+  const hours = (wakeMin - sleepMin) / 60;
+  return Math.round(hours * 10) / 10; // e.g. 7.5
+}
+
+// Build a detailed summary of recent daily entries for the AI context
 function buildRecentEntriesSummary(entries) {
   if (!entries || entries.length === 0) return '';
 
   const lines = entries.map(e => {
-    const parts = [`${e.entry_date} — ${e.activity_type}`];
-    if (e.focus_rating) parts.push(`focus:${e.focus_rating}/10`);
-    if (e.effort_rating) parts.push(`effort:${e.effort_rating}/10`);
-    if (e.confidence_rating) parts.push(`confidence:${e.confidence_rating}/10`);
-
-    // Parse responses JSON for sleep/nutrition data
     let responses = e.responses;
     if (typeof responses === 'string') {
       try { responses = JSON.parse(responses); } catch { responses = null; }
     }
+
+    const sections = [];
+    sections.push(`${e.entry_date}`);
+
     if (responses) {
-      if (responses.sleep && responses.sleep.hours) parts.push(`sleep:${responses.sleep.hours}h`);
-      if (responses.training && responses.training.duration) parts.push(`${responses.training.duration}min`);
+      // Training section
+      if (responses.training && Array.isArray(responses.training.sessions) && responses.training.sessions.length > 0) {
+        const sessionParts = responses.training.sessions.map(s => {
+          const bits = [];
+          if (s.trainingType) bits.push(s.trainingType);
+          if (s.duration) bits.push(`${s.duration}min`);
+          if (s.intensity) bits.push(s.intensity);
+          if (Array.isArray(s.details) && s.details.length > 0) bits.push(s.details.join(', '));
+          if (s.notes) bits.push(`"${s.notes.substring(0, 60)}"`);
+          return bits.join(' ');
+        });
+        const totalMin = responses.training.sessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+        sections.push(`Training: ${sessionParts.join(' + ')} (total ${totalMin}min)`);
+      }
+
+      // Nutrition section
+      if (responses.nutrition) {
+        const n = responses.nutrition;
+        const meals = [];
+        if (n.breakfast) meals.push(`breakfast: ${n.breakfast.substring(0, 50)}`);
+        if (n.lunch) meals.push(`lunch: ${n.lunch.substring(0, 50)}`);
+        if (n.dinner) meals.push(`dinner: ${n.dinner.substring(0, 50)}`);
+        if (n.snacks) meals.push(`snacks: ${n.snacks.substring(0, 40)}`);
+        if (n.drinks) meals.push(`drinks: ${n.drinks.substring(0, 40)}`);
+        if (meals.length > 0) sections.push(`Nutrition: ${meals.join(', ')}`);
+      }
+
+      // Sleep section
+      if (responses.sleep) {
+        const sl = responses.sleep;
+        const hours = calcSleepHours(sl.sleepTime, sl.wakeTime);
+        const sleepParts = [];
+        if (hours !== null) sleepParts.push(`${hours}h`);
+        if (sl.sleepTime) sleepParts.push(`slept at ${sl.sleepTime}`);
+        if (sl.wakeTime) sleepParts.push(`woke at ${sl.wakeTime}`);
+        if (sleepParts.length > 0) sections.push(`Sleep: ${sleepParts.join(', ')}`);
+      }
     }
 
-    if (e.did_well) parts.push(`did well: "${e.did_well.substring(0, 80)}"`);
-    if (e.improve_next) parts.push(`improve: "${e.improve_next.substring(0, 80)}"`);
-    return parts.join(', ');
+    return sections.join('\n  ');
   });
 
   return lines.join('\n');
@@ -152,8 +196,7 @@ exports.chat = async (req, res, next) => {
         [req.userId]
       ),
       query(
-        `SELECT entry_date, activity_type, focus_rating, effort_rating, confidence_rating,
-                performance_score, did_well, improve_next, responses
+        `SELECT entry_date, responses
          FROM daily_entries WHERE user_id = $1
          ORDER BY entry_date DESC LIMIT 7`,
         [req.userId]
