@@ -36,31 +36,43 @@ async function sendReportNotification(userId, reportType, periodLabel) {
   }
 }
 
+async function generateReportForUser(user, reportType, periodStart, periodEnd, minEntries) {
+  const countResult = await query(
+    'SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3',
+    [user.id, periodStart, periodEnd]
+  );
+  const count = parseInt(countResult.rows[0].cnt);
+  if (count < minEntries) return false;
+
+  const newReport = await generateReport(user.id, reportType, periodStart, periodEnd);
+
+  await query(
+    'DELETE FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND id != $3',
+    [user.id, reportType, newReport.id]
+  );
+
+  await sendReportNotification(user.id, reportType, `${periodStart} – ${periodEnd}`);
+  return true;
+}
+
 async function generateReportsForPeriod(reportType, periodStart, periodEnd, minEntries) {
   const users = await getPremiumUsers();
   let generated = 0;
+  const CONCURRENCY = 3;
 
-  for (const user of users) {
-    try {
-      const countResult = await query(
-        'SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3',
-        [user.id, periodStart, periodEnd]
-      );
-      const count = parseInt(countResult.rows[0].cnt);
-      if (count < minEntries) continue;
+  // Process users in parallel batches
+  for (let i = 0; i < users.length; i += CONCURRENCY) {
+    const batch = users.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(user => generateReportForUser(user, reportType, periodStart, periodEnd, minEntries))
+    );
 
-      // Generate new report first, then delete old ones to prevent data loss on failure
-      const newReport = await generateReport(user.id, reportType, periodStart, periodEnd);
-
-      await query(
-        'DELETE FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND id != $3',
-        [user.id, reportType, newReport.id]
-      );
-
-      await sendReportNotification(user.id, reportType, `${periodStart} – ${periodEnd}`);
-      generated++;
-    } catch (err) {
-      console.error(`${reportType} report failed for user ${user.id}:`, err.message);
+    for (let j = 0; j < results.length; j++) {
+      if (results[j].status === 'fulfilled' && results[j].value === true) {
+        generated++;
+      } else if (results[j].status === 'rejected') {
+        console.error(`${reportType} report failed for user ${batch[j].id}:`, results[j].reason.message);
+      }
     }
   }
 

@@ -86,10 +86,20 @@ YOUR COACHING PHILOSOPHY:
 ${mantra ? `THE ATHLETE'S PERSONAL MANTRA: "${mantra}" — This is their core identity statement. Reference it naturally when it connects to what you observe in their data. Don't force it, but when their actions align with or contradict this mantra, call it out.` : ''}
 
 DATA YOU WILL RECEIVE:
+The athlete may use two different logging formats:
+
+**V1 (Legacy) entries** — categorized as Training, Game, or Rest Day:
 - Training days include: areas worked on, skill that improved most, hardest drill, most common mistake, and tomorrow's focus
 - Game days include: sport-specific stats (goals, assists, points, etc.), best moment, biggest mistake, and improvement target
 - Rest days include: recovery activities, whether they studied their sport, and tomorrow's focus
+
+**V2 (Daily Log) entries** — modular sections that can include any combination of:
+- Training: one or more sessions with type (match, gym, cardio, technical, tactical, recovery), duration, intensity, specific details, and notes
+- Nutrition: meals logged (breakfast, lunch, dinner, snacks, drinks)
+- Sleep: sleep and wake times with calculated duration
+
 - Every day includes: what they did well, what to improve, and their proudest moment
+- V2 entries also show which sections were completed (training, nutrition, sleep) — use completion patterns to assess discipline
 
 CRITICAL RULES:
 - NEVER give generic advice like "keep it up" or "stay consistent" without connecting it to specific data points
@@ -99,6 +109,9 @@ CRITICAL RULES:
 - Connect their training focus areas to game performance — are they working on what matters?
 - Track rest day discipline — are they recovering properly between intense sessions?
 - Look for alignment between "proudest moment" entries and actual performance data
+- For V2 daily log entries: analyze training session variety (types, duration, intensity progression), nutrition consistency (how many meals logged, eating patterns), and sleep quality (duration trends, consistency of sleep/wake times)
+- Cross-reference V2 section completion patterns — athletes completing all 3 sections (training + nutrition + sleep) consistently show higher discipline
+- When both V1 and V2 entries exist in the same period, treat them equally — the athlete transitioned logging formats
 ${extraMonthlyInstructions}${extraYearlyInstructions}
 
 RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structure:
@@ -143,11 +156,18 @@ function buildUserPrompt(entries, sport, reportType) {
   const trainingDays = entries.filter(e => e.activity_type === 'training').length;
   const gameDays = entries.filter(e => e.activity_type === 'game').length;
   const restDays = entries.filter(e => e.activity_type === 'rest_day').length;
+  const dailyLogDays = entries.filter(e => e.activity_type === 'daily_log').length;
+
+  let overviewParts = [];
+  if (dailyLogDays > 0) overviewParts.push(`${dailyLogDays} daily logs`);
+  if (trainingDays > 0) overviewParts.push(`${trainingDays} training`);
+  if (gameDays > 0) overviewParts.push(`${gameDays} games`);
+  if (restDays > 0) overviewParts.push(`${restDays} rest days`);
 
   let prompt = `ATHLETE'S ${periodLabel.toUpperCase()} DATA — ${sport.toUpperCase()} PLAYER
 ${'='.repeat(50)}
 
-OVERVIEW: ${totalDays} entries logged (${trainingDays} training, ${gameDays} games, ${restDays} rest days)
+OVERVIEW: ${totalDays} entries logged (${overviewParts.join(', ')})
 
 ${'='.repeat(50)}
 DAY-BY-DAY BREAKDOWN:
@@ -165,7 +185,56 @@ ${'='.repeat(50)}
     prompt += `\n--- ${dayName}, ${date} ---\n`;
     prompt += `Activity: ${e.activity_type.replace('_', ' ').toUpperCase()}\n`;
 
-    if (e.activity_type === 'training') {
+    if (e.activity_type === 'daily_log' && r.version === 2) {
+      // V2 Daily Log — modular sections
+      const sections = r.completedSections || [];
+      prompt += `Sections completed: ${sections.join(', ') || 'none'}\n`;
+
+      // Training sessions
+      if (r.training && r.training.sessions && r.training.sessions.length > 0) {
+        prompt += `Training (${r.training.sessions.length} session${r.training.sessions.length > 1 ? 's' : ''}, total ${r.training.sessions.reduce((sum, s) => sum + (s.duration || 0), 0)}min):\n`;
+        r.training.sessions.forEach((session, i) => {
+          const type = session.trainingType ? session.trainingType.replace(/_/g, ' ') : 'unknown';
+          prompt += `  Session ${i + 1}: ${type} — ${session.duration || 0}min, intensity: ${session.intensity || 'unknown'}`;
+          if (session.details && session.details.length > 0) {
+            prompt += ` [${session.details.join(', ')}]`;
+          }
+          prompt += '\n';
+          if (session.notes) prompt += `    Notes: "${session.notes}"\n`;
+        });
+      }
+
+      // Nutrition
+      if (r.nutrition) {
+        const meals = [];
+        if (r.nutrition.breakfast) meals.push(`Breakfast: ${r.nutrition.breakfast}`);
+        if (r.nutrition.lunch) meals.push(`Lunch: ${r.nutrition.lunch}`);
+        if (r.nutrition.dinner) meals.push(`Dinner: ${r.nutrition.dinner}`);
+        if (r.nutrition.snacks) meals.push(`Snacks: ${r.nutrition.snacks}`);
+        if (r.nutrition.drinks) meals.push(`Drinks: ${r.nutrition.drinks}`);
+        if (meals.length > 0) {
+          prompt += `Nutrition (${meals.length} item${meals.length > 1 ? 's' : ''} logged):\n`;
+          meals.forEach(m => { prompt += `  ${m}\n`; });
+        }
+      }
+
+      // Sleep
+      if (r.sleep) {
+        let sleepLine = `Sleep: ${r.sleep.sleepTime || '?'} → ${r.sleep.wakeTime || '?'}`;
+        if (r.sleep.sleepTime && r.sleep.wakeTime) {
+          const sleepParts = r.sleep.sleepTime.split(':').map(Number);
+          const wakeParts = r.sleep.wakeTime.split(':').map(Number);
+          if (sleepParts.length === 2 && wakeParts.length === 2) {
+            let diffMin = (wakeParts[0] * 60 + wakeParts[1]) - (sleepParts[0] * 60 + sleepParts[1]);
+            if (diffMin < 0) diffMin += 24 * 60;
+            const hours = Math.floor(diffMin / 60);
+            const mins = diffMin % 60;
+            sleepLine += ` (${hours}h${mins > 0 ? ` ${mins}m` : ''})`;
+          }
+        }
+        prompt += `${sleepLine}\n`;
+      }
+    } else if (e.activity_type === 'training') {
       if (r.workedOn && r.workedOn.length > 0) {
         prompt += `Worked on: ${r.workedOn.join(', ')}\n`;
       }
@@ -248,8 +317,9 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
 
   const tokenLimits = { weekly: 4000, monthly: 8000, yearly: 12000 };
   const maxTokens = tokenLimits[reportType] || 4000;
+  const timeoutMs = { weekly: 60000, monthly: 90000, yearly: 120000 };
 
-  const completion = await getClient().chat.completions.create({
+  const aiPromise = getClient().chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
       { role: 'system', content: systemPrompt },
@@ -259,6 +329,12 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
     temperature: 0.75,
     max_tokens: maxTokens,
   });
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`OpenAI report generation timed out after ${(timeoutMs[reportType] || 60000) / 1000}s`)), timeoutMs[reportType] || 60000)
+  );
+
+  const completion = await Promise.race([aiPromise, timeoutPromise]);
 
   let reportContent;
   try {
