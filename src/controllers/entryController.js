@@ -251,6 +251,9 @@ exports.getAnalytics = async (req, res, next) => {
     let drinksCount = 0;
     let totalHealthScore = 0;
 
+    // Collect nutrition data for parallel AI scoring after the loop
+    const nutritionScoringTasks = []; // { index, nutrition }
+
     function calcSleepHours(sleep) {
       if (!sleep || !sleep.sleepTime || !sleep.wakeTime) return null;
       const sp = (sleep.sleepTime || '').split(':').map(Number);
@@ -312,10 +315,7 @@ exports.getAnalytics = async (req, res, next) => {
             if (hasDinner) { dinnerCount++; mealsLogged++; }
             if (hasSnacks) snacksCount++;
             if (hasDrinks) drinksCount++;
-            // Compute content-based health score (1-100)
-            const healthScore = computeHealthScore(r.nutrition);
-            totalHealthScore += healthScore;
-
+            // Health score will be filled after parallel AI scoring
             nutritionDetail = {
               mealsLogged,
               breakfast: hasBreakfast,
@@ -323,8 +323,10 @@ exports.getAnalytics = async (req, res, next) => {
               dinner: hasDinner,
               snacks: hasSnacks,
               drinks: hasDrinks,
-              healthScore,
+              healthScore: 0, // placeholder
             };
+            // Queue for AI scoring
+            nutritionScoringTasks.push({ dailyDataIndex: dailyData.length, nutrition: r.nutrition });
           }
         }
 
@@ -367,6 +369,19 @@ exports.getAnalytics = async (req, res, next) => {
           trainingDuration: null,
           nutritionDetail: null,
         });
+      }
+    }
+
+    // Score all nutrition entries in parallel via AI
+    if (nutritionScoringTasks.length > 0) {
+      const scores = await Promise.all(
+        nutritionScoringTasks.map(task => computeHealthScore(task.nutrition))
+      );
+      for (let i = 0; i < nutritionScoringTasks.length; i++) {
+        const score = scores[i] || 50;
+        const idx = nutritionScoringTasks[i].dailyDataIndex;
+        dailyData[idx].nutritionDetail.healthScore = score;
+        totalHealthScore += score;
       }
     }
 
