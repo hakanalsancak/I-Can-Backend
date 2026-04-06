@@ -236,6 +236,28 @@ exports.getAnalytics = async (req, res, next) => {
     let completionSum = 0;
     const dailyData = [];
 
+    // Training aggregates
+    let totalTrainingDuration = 0;
+    const trainingTypeCount = {};   // e.g. { gym: 3, cardio: 2 }
+    const intensityCount = {};      // e.g. { high: 2, medium: 3 }
+    let totalSessionCount = 0;
+
+    // Nutrition aggregates
+    let breakfastCount = 0;
+    let lunchCount = 0;
+    let dinnerCount = 0;
+    let snacksCount = 0;
+    let drinksCount = 0;
+
+    function calcSleepHours(sleep) {
+      if (!sleep || !sleep.sleepTime || !sleep.wakeTime) return null;
+      const sp = (sleep.sleepTime || '').split(':').map(Number);
+      const wp = (sleep.wakeTime || '').split(':').map(Number);
+      let d = (wp[0] * 60 + (wp[1] || 0)) - (sp[0] * 60 + (sp[1] || 0));
+      if (d < 0) d += 24 * 60;
+      return Math.round(d / 6) / 10;
+    }
+
     for (const e of entries) {
       const dateStr = formatDate(e.entry_date);
       totalDays++;
@@ -249,8 +271,56 @@ exports.getAnalytics = async (req, res, next) => {
         const hasNutrition = sections.includes('nutrition');
         const hasSleep = sections.includes('sleep');
 
-        if (hasTraining) trainingSessions++;
-        if (hasNutrition) nutritionDays++;
+        // Training detail extraction
+        let trainingSessions_day = [];
+        let trainingDuration = 0;
+        if (hasTraining) {
+          trainingSessions++;
+          if (r.training && r.training.sessions) {
+            for (const s of r.training.sessions) {
+              totalSessionCount++;
+              trainingDuration += s.duration || 0;
+              totalTrainingDuration += s.duration || 0;
+              const tType = s.trainingType || 'other';
+              trainingTypeCount[tType] = (trainingTypeCount[tType] || 0) + 1;
+              const iLevel = s.intensity || 'medium';
+              intensityCount[iLevel] = (intensityCount[iLevel] || 0) + 1;
+              trainingSessions_day.push({
+                type: tType,
+                duration: s.duration || 0,
+                intensity: iLevel,
+              });
+            }
+          }
+        }
+
+        // Nutrition detail extraction
+        let mealsLogged = 0;
+        let nutritionDetail = null;
+        if (hasNutrition) {
+          nutritionDays++;
+          if (r.nutrition) {
+            const hasBreakfast = !!(r.nutrition.breakfast && r.nutrition.breakfast.trim());
+            const hasLunch = !!(r.nutrition.lunch && r.nutrition.lunch.trim());
+            const hasDinner = !!(r.nutrition.dinner && r.nutrition.dinner.trim());
+            const hasSnacks = !!(r.nutrition.snacks && r.nutrition.snacks.trim());
+            const hasDrinks = !!(r.nutrition.drinks && r.nutrition.drinks.trim());
+            if (hasBreakfast) { breakfastCount++; mealsLogged++; }
+            if (hasLunch) { lunchCount++; mealsLogged++; }
+            if (hasDinner) { dinnerCount++; mealsLogged++; }
+            if (hasSnacks) snacksCount++;
+            if (hasDrinks) drinksCount++;
+            nutritionDetail = {
+              mealsLogged,
+              breakfast: hasBreakfast,
+              lunch: hasLunch,
+              dinner: hasDinner,
+              snacks: hasSnacks,
+              drinks: hasDrinks,
+            };
+          }
+        }
+
         if (hasSleep) {
           sleepDays++;
           if (r.sleep && r.sleep.sleepTime && r.sleep.wakeTime) {
@@ -270,13 +340,10 @@ exports.getAnalytics = async (req, res, next) => {
           training: hasTraining,
           nutrition: hasNutrition,
           sleep: hasSleep,
-          sleepHours: hasSleep && r.sleep ? (() => {
-            const sp = (r.sleep.sleepTime || '').split(':').map(Number);
-            const wp = (r.sleep.wakeTime || '').split(':').map(Number);
-            let d = (wp[0] * 60 + (wp[1] || 0)) - (sp[0] * 60 + (sp[1] || 0));
-            if (d < 0) d += 24 * 60;
-            return Math.round(d / 6) / 10;
-          })() : null,
+          sleepHours: hasSleep ? calcSleepHours(r.sleep) : null,
+          trainingSessions: trainingSessions_day.length > 0 ? trainingSessions_day : null,
+          trainingDuration: hasTraining ? trainingDuration : null,
+          nutritionDetail,
         });
       } else {
         // V1 entries count as training
@@ -289,6 +356,9 @@ exports.getAnalytics = async (req, res, next) => {
           nutrition: false,
           sleep: false,
           sleepHours: null,
+          trainingSessions: null,
+          trainingDuration: null,
+          nutritionDetail: null,
         });
       }
     }
@@ -297,6 +367,26 @@ exports.getAnalytics = async (req, res, next) => {
     const start = new Date(startDate);
     const end = new Date(endDate);
     const expectedDays = Math.ceil((end - start) / 86400000) + 1;
+
+    // Build training summary
+    const trainingSummary = {
+      totalSessions: totalSessionCount,
+      totalDuration: totalTrainingDuration,
+      avgDuration: totalSessionCount > 0 ? Math.round(totalTrainingDuration / totalSessionCount) : 0,
+      typeBreakdown: trainingTypeCount,
+      intensityBreakdown: intensityCount,
+    };
+
+    // Build nutrition summary
+    const nutritionSummary = {
+      daysLogged: nutritionDays,
+      avgMealsPerDay: nutritionDays > 0 ? Math.round(((breakfastCount + lunchCount + dinnerCount) / nutritionDays) * 10) / 10 : 0,
+      breakfastRate: nutritionDays > 0 ? Math.round((breakfastCount / nutritionDays) * 100) : 0,
+      lunchRate: nutritionDays > 0 ? Math.round((lunchCount / nutritionDays) * 100) : 0,
+      dinnerRate: nutritionDays > 0 ? Math.round((dinnerCount / nutritionDays) * 100) : 0,
+      snacksRate: nutritionDays > 0 ? Math.round((snacksCount / nutritionDays) * 100) : 0,
+      drinksRate: nutritionDays > 0 ? Math.round((drinksCount / nutritionDays) * 100) : 0,
+    };
 
     res.json({
       period: period || 'week',
@@ -310,6 +400,8 @@ exports.getAnalytics = async (req, res, next) => {
       avgSleepHours: sleepDays > 0 ? Math.round((totalSleepHours / sleepDays) * 10) / 10 : null,
       avgCompletion: totalDays > 0 ? Math.round((completionSum / (totalDays * 3)) * 100) : 0,
       consistencyPercent: Math.round((totalDays / expectedDays) * 100),
+      trainingSummary,
+      nutritionSummary,
       dailyData,
     });
   } catch (err) {
