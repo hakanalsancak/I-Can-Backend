@@ -26,6 +26,7 @@ const leaderboardRoutes = require('./routes/leaderboard');
 const chatRoutes = require('./routes/chat');
 const feedbackRoutes = require('./routes/feedback');
 const journalNoteRoutes = require('./routes/journalNotes');
+const appRoutes = require('./routes/app');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -71,6 +72,7 @@ app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/journal-notes', journalNoteRoutes);
+app.use('/api/app', appRoutes);
 
 app.use(errorHandler);
 
