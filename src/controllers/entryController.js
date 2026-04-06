@@ -1,6 +1,7 @@
 const { query, getClient } = require('../config/database');
 const { getClient: getOpenAI } = require('../config/openai');
 const { checkPremiumAccess } = require('../services/subscriptionService');
+const { computeStreakFromEntries } = require('./streakController');
 
 function formatDate(d) {
   if (!d) return null;
@@ -105,46 +106,22 @@ exports.submitEntry = async (req, res, next) => {
       ]
     );
 
-    const today = new Date(entryDate).toISOString().split('T')[0];
-    const yesterday = new Date(new Date(entryDate).getTime() - 86400000).toISOString().split('T')[0];
+    // Compute the current streak from actual entries (timezone-safe, handles V1→V2 transition)
+    const currentStreak = await computeStreakFromEntries(client, req.userId);
 
+    // Upsert the streaks row
     const streakResult = await client.query(
-      'SELECT * FROM streaks WHERE user_id = $1',
-      [req.userId]
+      `INSERT INTO streaks (user_id, current_streak, longest_streak, last_entry_date, updated_at)
+       VALUES ($1, $2, $2, $3, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         current_streak = $2,
+         longest_streak = GREATEST(streaks.longest_streak, $2),
+         last_entry_date = $3,
+         updated_at = NOW()
+       RETURNING *`,
+      [req.userId, currentStreak, entryDate]
     );
-
-    let streak;
-    if (streakResult.rows.length === 0) {
-      const inserted = await client.query(
-        `INSERT INTO streaks (user_id, current_streak, longest_streak, last_entry_date, updated_at)
-         VALUES ($1, 1, 1, $2, NOW()) RETURNING *`,
-        [req.userId, today]
-      );
-      streak = inserted.rows[0];
-    } else {
-      streak = streakResult.rows[0];
-      const lastDate = streak.last_entry_date
-        ? new Date(streak.last_entry_date).toISOString().split('T')[0]
-        : null;
-
-      let newStreak = streak.current_streak;
-      if (lastDate === today) {
-        // Already logged today
-      } else if (lastDate === yesterday) {
-        newStreak += 1;
-      } else {
-        newStreak = 1;
-      }
-
-      const longestStreak = Math.max(newStreak, streak.longest_streak);
-      const updated = await client.query(
-        `UPDATE streaks SET current_streak = $1, longest_streak = $2,
-         last_entry_date = $3, updated_at = NOW()
-         WHERE user_id = $4 RETURNING *`,
-        [newStreak, longestStreak, today, req.userId]
-      );
-      streak = updated.rows[0];
-    }
+    const streak = streakResult.rows[0];
 
     await client.query('COMMIT');
 
