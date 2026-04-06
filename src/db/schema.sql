@@ -165,6 +165,18 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
 
+-- JOURNAL NOTES (private user notes, not used for AI reports or coaching)
+CREATE TABLE IF NOT EXISTS journal_notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    note_date DATE NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, note_date)
+);
+CREATE INDEX IF NOT EXISTS idx_journal_notes_user_date ON journal_notes(user_id, note_date DESC);
+
 -- CHAT USAGE (daily message tracking for free users)
 CREATE TABLE IF NOT EXISTS chat_usage (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
