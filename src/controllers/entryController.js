@@ -2,6 +2,7 @@ const { query, getClient } = require('../config/database');
 const { getClient: getOpenAI } = require('../config/openai');
 const { checkPremiumAccess } = require('../services/subscriptionService');
 const { computeStreakFromEntries } = require('./streakController');
+const { computeHealthScore } = require('../services/nutritionScorer');
 
 function formatDate(d) {
   if (!d) return null;
@@ -248,7 +249,7 @@ exports.getAnalytics = async (req, res, next) => {
     let dinnerCount = 0;
     let snacksCount = 0;
     let drinksCount = 0;
-    let totalMealRating = 0;
+    let totalHealthScore = 0;
 
     function calcSleepHours(sleep) {
       if (!sleep || !sleep.sleepTime || !sleep.wakeTime) return null;
@@ -311,19 +312,9 @@ exports.getAnalytics = async (req, res, next) => {
             if (hasDinner) { dinnerCount++; mealsLogged++; }
             if (hasSnacks) snacksCount++;
             if (hasDrinks) drinksCount++;
-            // Meal health rating (1-10 scale for athlete nutrition)
-            // Base: 3 main meals = 6 pts (2 each), snacks = 1pt, hydration = 1pt
-            // Breakfast bonus: +1 (most important meal for athletes)
-            // All 3 meals = +1 completeness bonus
-            let mealRating = 0;
-            if (hasBreakfast) mealRating += 3; // breakfast weighted higher for athletes
-            if (hasLunch) mealRating += 2;
-            if (hasDinner) mealRating += 2;
-            if (hasSnacks) mealRating += 1;
-            if (hasDrinks) mealRating += 1;
-            if (hasBreakfast && hasLunch && hasDinner) mealRating += 1; // completeness bonus
-            mealRating = Math.min(mealRating, 10);
-            totalMealRating += mealRating;
+            // Compute content-based health score (1-100)
+            const healthScore = computeHealthScore(r.nutrition);
+            totalHealthScore += healthScore;
 
             nutritionDetail = {
               mealsLogged,
@@ -332,7 +323,7 @@ exports.getAnalytics = async (req, res, next) => {
               dinner: hasDinner,
               snacks: hasSnacks,
               drinks: hasDrinks,
-              mealRating,
+              healthScore,
             };
           }
         }
@@ -397,7 +388,7 @@ exports.getAnalytics = async (req, res, next) => {
     const nutritionSummary = {
       daysLogged: nutritionDays,
       avgMealsPerDay: nutritionDays > 0 ? Math.round(((breakfastCount + lunchCount + dinnerCount) / nutritionDays) * 10) / 10 : 0,
-      avgMealRating: nutritionDays > 0 ? Math.round((totalMealRating / nutritionDays) * 10) / 10 : 0,
+      avgHealthScore: nutritionDays > 0 ? Math.round(totalHealthScore / nutritionDays) : 0,
       breakfastRate: nutritionDays > 0 ? Math.round((breakfastCount / nutritionDays) * 100) : 0,
       lunchRate: nutritionDays > 0 ? Math.round((lunchCount / nutritionDays) * 100) : 0,
       dinnerRate: nutritionDays > 0 ? Math.round((dinnerCount / nutritionDays) * 100) : 0,
