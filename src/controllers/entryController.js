@@ -126,8 +126,38 @@ exports.submitEntry = async (req, res, next) => {
 
     await client.query('COMMIT');
 
+    const entry = entryResult.rows[0];
+
+    // Compute and persist nutrition health score if nutrition data is present
+    if (responses && responses.nutrition) {
+      const hasMeals = ['breakfast', 'lunch', 'dinner'].some(
+        m => responses.nutrition[m] && responses.nutrition[m].trim()
+      );
+      if (hasMeals) {
+        try {
+          const score = await computeHealthScore(responses.nutrition);
+          if (score != null) {
+            const storedResponses = typeof entry.responses === 'string'
+              ? JSON.parse(entry.responses)
+              : entry.responses;
+            if (storedResponses && storedResponses.nutrition) {
+              storedResponses.nutrition.healthScore = score;
+              await query(
+                `UPDATE daily_entries SET responses = $1 WHERE id = $2`,
+                [JSON.stringify(storedResponses), entry.id]
+              );
+              entry.responses = storedResponses;
+            }
+          }
+        } catch (scoreErr) {
+          // Non-critical — don't fail the submission if scoring fails
+          console.error('Health score persistence failed:', scoreErr.message);
+        }
+      }
+    }
+
     res.status(201).json({
-      entry: formatEntry(entryResult.rows[0]),
+      entry: formatEntry(entry),
       streak: {
         currentStreak: streak.current_streak,
         longestStreak: streak.longest_streak,
@@ -251,8 +281,7 @@ exports.getAnalytics = async (req, res, next) => {
     let drinksCount = 0;
     let totalHealthScore = 0;
 
-    // Collect nutrition data for parallel AI scoring after the loop
-    const nutritionScoringTasks = []; // { index, nutrition }
+    // No longer scoring via AI in analytics — scores are persisted on submit
 
     function calcSleepHours(sleep) {
       if (!sleep || !sleep.sleepTime || !sleep.wakeTime) return null;
@@ -315,7 +344,8 @@ exports.getAnalytics = async (req, res, next) => {
             if (hasDinner) { dinnerCount++; mealsLogged++; }
             if (hasSnacks) snacksCount++;
             if (hasDrinks) drinksCount++;
-            // Health score will be filled after parallel AI scoring
+            // Read persisted health score (computed on submit)
+            const storedScore = r.nutrition.healthScore || 0;
             nutritionDetail = {
               mealsLogged,
               breakfast: hasBreakfast,
@@ -323,10 +353,9 @@ exports.getAnalytics = async (req, res, next) => {
               dinner: hasDinner,
               snacks: hasSnacks,
               drinks: hasDrinks,
-              healthScore: 0, // placeholder
+              healthScore: storedScore,
             };
-            // Queue for AI scoring
-            nutritionScoringTasks.push({ dailyDataIndex: dailyData.length, nutrition: r.nutrition });
+            totalHealthScore += storedScore;
           }
         }
 
@@ -369,19 +398,6 @@ exports.getAnalytics = async (req, res, next) => {
           trainingDuration: null,
           nutritionDetail: null,
         });
-      }
-    }
-
-    // Score all nutrition entries in parallel via AI
-    if (nutritionScoringTasks.length > 0) {
-      const scores = await Promise.all(
-        nutritionScoringTasks.map(task => computeHealthScore(task.nutrition))
-      );
-      for (let i = 0; i < nutritionScoringTasks.length; i++) {
-        const score = scores[i] || 50;
-        const idx = nutritionScoringTasks[i].dailyDataIndex;
-        dailyData[idx].nutritionDetail.healthScore = score;
-        totalHealthScore += score;
       }
     }
 
