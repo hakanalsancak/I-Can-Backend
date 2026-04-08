@@ -252,7 +252,7 @@ exports.getAnalytics = async (req, res, next) => {
 
     // Get entries in range
     const result = await query(
-      `SELECT entry_date, activity_type, responses, performance_score, focus_rating, effort_rating, confidence_rating
+      `SELECT id, entry_date, activity_type, responses, performance_score, focus_rating, effort_rating, confidence_rating
        FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3
        ORDER BY entry_date ASC`,
       [req.userId, startDate, endDate]
@@ -281,7 +281,8 @@ exports.getAnalytics = async (req, res, next) => {
     let drinksCount = 0;
     let totalHealthScore = 0;
 
-    // No longer scoring via AI in analytics — scores are persisted on submit
+    // Entries that need a one-time backfill of their health score
+    const backfillTasks = []; // { entryId, responses, nutrition, dailyDataIndex }
 
     function calcSleepHours(sleep) {
       if (!sleep || !sleep.sleepTime || !sleep.wakeTime) return null;
@@ -344,7 +345,7 @@ exports.getAnalytics = async (req, res, next) => {
             if (hasDinner) { dinnerCount++; mealsLogged++; }
             if (hasSnacks) snacksCount++;
             if (hasDrinks) drinksCount++;
-            // Read persisted health score (computed on submit)
+            // Read persisted health score, or queue for backfill if missing
             const storedScore = r.nutrition.healthScore || 0;
             nutritionDetail = {
               mealsLogged,
@@ -356,6 +357,15 @@ exports.getAnalytics = async (req, res, next) => {
               healthScore: storedScore,
             };
             totalHealthScore += storedScore;
+            // If no stored score, queue a one-time backfill via AI
+            if (!r.nutrition.healthScore && mealsLogged > 0) {
+              backfillTasks.push({
+                entryId: e.id,
+                responses: r,
+                nutrition: r.nutrition,
+                dailyDataIndex: dailyData.length,
+              });
+            }
           }
         }
 
@@ -398,6 +408,31 @@ exports.getAnalytics = async (req, res, next) => {
           trainingDuration: null,
           nutritionDetail: null,
         });
+      }
+    }
+
+    // Backfill health scores for old entries that don't have one yet
+    if (backfillTasks.length > 0) {
+      try {
+        const scores = await Promise.all(
+          backfillTasks.map(task => computeHealthScore(task.nutrition))
+        );
+        for (let i = 0; i < backfillTasks.length; i++) {
+          const score = scores[i] || 50;
+          const task = backfillTasks[i];
+          const idx = task.dailyDataIndex;
+          // Update in-memory response
+          dailyData[idx].nutritionDetail.healthScore = score;
+          totalHealthScore += score;
+          // Persist to DB so this only happens once
+          task.responses.nutrition.healthScore = score;
+          query(
+            `UPDATE daily_entries SET responses = $1 WHERE id = $2`,
+            [JSON.stringify(task.responses), task.entryId]
+          ).catch(err => console.error('Backfill persist failed:', err.message));
+        }
+      } catch (err) {
+        console.error('Nutrition backfill failed:', err.message);
       }
     }
 
