@@ -241,13 +241,18 @@ exports.getAnalytics = async (req, res, next) => {
 
     if (period === 'month') {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      endDate = now.toISOString().split('T')[0];
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endDate = lastDay.toISOString().split('T')[0];
     } else {
-      // Default to week
+      // Default to week (Monday–Sunday)
+      const day = now.getDay(); // 0=Sun, 1=Mon, ...
+      const diffToMonday = day === 0 ? 6 : day - 1;
       const weekStart = new Date(now);
-      weekStart.setDate(now.getDate() - now.getDay());
+      weekStart.setDate(now.getDate() - diffToMonday);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
       startDate = weekStart.toISOString().split('T')[0];
-      endDate = now.toISOString().split('T')[0];
+      endDate = weekEnd.toISOString().split('T')[0];
     }
 
     // Get entries in range
@@ -436,10 +441,37 @@ exports.getAnalytics = async (req, res, next) => {
       }
     }
 
-    // Calculate expected days in range
+    // Build full date range with blank entries for days without data
     const start = new Date(startDate);
     const end = new Date(endDate);
     const expectedDays = Math.ceil((end - start) / 86400000) + 1;
+
+    const dataByDate = {};
+    for (const d of dailyData) {
+      dataByDate[d.date] = d;
+    }
+
+    const fullDailyData = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const dateStr = cursor.toISOString().split('T')[0];
+      if (dataByDate[dateStr]) {
+        fullDailyData.push(dataByDate[dateStr]);
+      } else {
+        fullDailyData.push({
+          date: dateStr,
+          completion: 0,
+          training: false,
+          nutrition: false,
+          sleep: false,
+          sleepHours: null,
+          trainingSessions: null,
+          trainingDuration: null,
+          nutritionDetail: null,
+        });
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
 
     // Build training summary
     const trainingSummary = {
@@ -476,7 +508,7 @@ exports.getAnalytics = async (req, res, next) => {
       consistencyPercent: Math.round((totalDays / expectedDays) * 100),
       trainingSummary,
       nutritionSummary,
-      dailyData,
+      dailyData: fullDailyData,
     });
   } catch (err) {
     next(err);
