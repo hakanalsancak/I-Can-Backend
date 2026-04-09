@@ -9,6 +9,7 @@ router.use(authenticate);
 
 router.get('/search', friendController.searchUsers);
 router.get('/requests', friendController.getPendingRequests);
+router.get('/requests/sent', friendController.getSentRequests);
 router.get('/', friendController.getFriends);
 router.get('/profile/:id', friendController.getFriendProfile);
 

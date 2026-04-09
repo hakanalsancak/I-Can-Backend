@@ -214,6 +214,40 @@ exports.getPendingRequests = async (req, res, next) => {
   }
 };
 
+exports.getSentRequests = async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT fr.id, fr.receiver_id, fr.created_at,
+              u.username, u.full_name, u.sport,
+              u.profile_photo_url, ${EFFECTIVE_STREAK} AS current_streak
+       FROM friend_requests fr
+       JOIN users u ON u.id = fr.receiver_id
+       LEFT JOIN streaks s ON s.user_id = fr.receiver_id
+       WHERE fr.sender_id = $1 AND fr.status = 'pending'
+       ORDER BY fr.created_at DESC`,
+      [req.userId]
+    );
+
+    const requests = result.rows.map(r => ({
+      id: r.id,
+      receiverId: r.receiver_id,
+      createdAt: r.created_at,
+      receiver: {
+        id: r.receiver_id,
+        username: r.username,
+        fullName: r.full_name,
+        sport: r.sport,
+        profilePhotoUrl: r.profile_photo_url || null,
+        currentStreak: r.current_streak || 0,
+      },
+    }));
+
+    res.json(requests);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.getFriends = async (req, res, next) => {
   try {
     const result = await query(
