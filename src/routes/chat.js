@@ -11,6 +11,8 @@ router.post('/', aiLimiter, chatController.chat);
 
 router.get('/conversations', conversationController.listConversations);
 router.get('/conversations/:id/messages', conversationController.getMessages);
+router.patch('/conversations/:id/title', conversationController.renameConversation);
+router.patch('/conversations/:id/pin', conversationController.togglePin);
 router.delete('/conversations/:id', conversationController.deleteConversation);
 
 module.exports = router;

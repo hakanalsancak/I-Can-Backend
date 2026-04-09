@@ -21,6 +21,7 @@ exports.listConversations = async (req, res, next) => {
       `SELECT
          c.id,
          c.title,
+         c.is_pinned AS "isPinned",
          c.created_at AS "createdAt",
          c.updated_at AS "updatedAt",
          (SELECT COUNT(*)::int FROM chat_messages WHERE conversation_id = c.id) AS "messageCount",
@@ -31,7 +32,7 @@ exports.listConversations = async (req, res, next) => {
           LIMIT 1) AS "lastMessage"
        FROM conversations c
        WHERE c.user_id = $1
-       ORDER BY c.updated_at DESC
+       ORDER BY c.is_pinned DESC, c.updated_at DESC
        LIMIT $2 OFFSET $3`,
       [req.userId, limit, offset]
     );
@@ -94,6 +95,59 @@ exports.getMessages = async (req, res, next) => {
     const messages = hasMore ? result.rows.slice(0, limit) : result.rows;
 
     res.json({ messages, hasMore });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.renameConversation = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { title } = req.body;
+
+    if (!id || !UUID_REGEX.test(id)) {
+      return res.status(400).json({ error: 'Invalid conversation ID' });
+    }
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+    if (title.trim().length > 100) {
+      return res.status(400).json({ error: 'Title exceeds 100 character limit' });
+    }
+
+    const result = await query(
+      'UPDATE conversations SET title = $1 WHERE id = $2 AND user_id = $3 RETURNING id',
+      [title.trim(), id, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.togglePin = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || !UUID_REGEX.test(id)) {
+      return res.status(400).json({ error: 'Invalid conversation ID' });
+    }
+
+    const result = await query(
+      'UPDATE conversations SET is_pinned = NOT is_pinned WHERE id = $1 AND user_id = $2 RETURNING id, is_pinned AS "isPinned"',
+      [id, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    res.json({ success: true, isPinned: result.rows[0].isPinned });
   } catch (err) {
     next(err);
   }

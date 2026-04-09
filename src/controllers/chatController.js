@@ -277,14 +277,16 @@ exports.chat = async (req, res, next) => {
       }
     }
 
-    // If no existing conversation, create one
+    // If no existing conversation, create one (title generated after AI reply)
+    let isNewConversation = false;
     if (!activeConversationId) {
-      const title = message.trim().substring(0, 100);
+      const fallbackTitle = message.trim().substring(0, 100);
       const convResult = await query(
         'INSERT INTO conversations (user_id, title) VALUES ($1, $2) RETURNING id',
-        [req.userId, title]
+        [req.userId, fallbackTitle]
       );
       activeConversationId = convResult.rows[0].id;
+      isNewConversation = true;
     }
 
     messages.push({ role: 'user', content: message.trim() });
@@ -337,7 +339,42 @@ exports.chat = async (req, res, next) => {
       response.remaining = remaining;
     }
     res.json(response);
+
+    // Generate a smart conversation title in the background (fire-and-forget)
+    if (isNewConversation) {
+      generateConversationTitle(activeConversationId, message.trim(), reply);
+    }
   } catch (err) {
     next(err);
   }
 };
+
+// Generate a concise conversation title from the first exchange
+async function generateConversationTitle(conversationId, userMessage, assistantReply) {
+  try {
+    const completion = await getClient().chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'Generate a short, descriptive title (max 6 words) for this conversation between an athlete and their coach. Return ONLY the title text, no quotes, no punctuation at the end.'
+        },
+        { role: 'user', content: userMessage },
+        { role: 'assistant', content: assistantReply }
+      ],
+      temperature: 0.5,
+      max_tokens: 30
+    });
+
+    const title = completion.choices[0].message.content.trim().substring(0, 100);
+    if (title) {
+      await query(
+        'UPDATE conversations SET title = $1 WHERE id = $2',
+        [title, conversationId]
+      );
+    }
+  } catch (err) {
+    // Non-critical — fallback title (first message) remains
+    console.error('Failed to generate conversation title:', err.message);
+  }
+}
