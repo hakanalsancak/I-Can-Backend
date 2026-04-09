@@ -276,6 +276,7 @@ exports.getFriendProfile = async (req, res, next) => {
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
               u.competition_level, u.mantra, u.profile_photo_url,
+              u.height, u.weight, u.hide_height_weight,
               ${EFFECTIVE_STREAK} AS current_streak, s.longest_streak
        FROM users u
        LEFT JOIN streaks s ON s.user_id = u.id
@@ -288,6 +289,8 @@ exports.getFriendProfile = async (req, res, next) => {
     }
 
     const u = result.rows[0];
+    const isOwnProfile = id === req.userId;
+    const showHeightWeight = isOwnProfile || !u.hide_height_weight;
 
     res.json({
       id: u.id,
@@ -303,6 +306,8 @@ exports.getFriendProfile = async (req, res, next) => {
       currentStreak: u.current_streak || 0,
       longestStreak: u.longest_streak || 0,
       isFriend: id !== req.userId,
+      height: showHeightWeight && u.height != null ? Number(u.height) : null,
+      weight: showHeightWeight && u.weight != null ? Number(u.weight) : null,
     });
   } catch (err) {
     next(err);

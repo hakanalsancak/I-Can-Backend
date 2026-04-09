@@ -51,6 +51,9 @@ function formatUserFields(user) {
     primaryGoal: user.primary_goal,
     profilePhotoUrl: user.profile_photo_url || null,
     onboardingCompleted: user.onboarding_completed,
+    height: user.height != null ? Number(user.height) : null,
+    weight: user.weight != null ? Number(user.weight) : null,
+    hideHeightWeight: user.hide_height_weight || false,
   };
 }
 
@@ -324,7 +327,7 @@ const MIN_USERNAME_LENGTH = 3;
 const MAX_USERNAME_LENGTH = 30;
 const MAX_TEXT_LENGTH = 200;
 
-function validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport, username }) {
+function validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport, username, height, weight }) {
   if (username !== undefined && username !== null) {
     if (typeof username !== 'string' || username.length < MIN_USERNAME_LENGTH) {
       return 'Username must be at least 3 characters';
@@ -357,17 +360,25 @@ function validateProfileFields({ fullName, age, country, gender, team, position,
       return `${label} must be a string of ${MAX_TEXT_LENGTH} characters or less`;
     }
   }
+  if (height !== undefined && height !== null) {
+    const h = Number(height);
+    if (isNaN(h) || h < 50 || h > 300) return 'Height must be between 50 and 300 cm';
+  }
+  if (weight !== undefined && weight !== null) {
+    const w = Number(weight);
+    if (isNaN(w) || w < 20 || w > 500) return 'Weight must be between 20 and 500 kg';
+  }
   return null;
 }
 
 exports.completeOnboarding = async (req, res, next) => {
   try {
-    const { sport, mantra, notificationFrequency, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username } = req.body;
+    const { sport, mantra, notificationFrequency, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username, height, weight } = req.body;
     if (!sport) {
       return res.status(400).json({ error: 'Sport is required' });
     }
 
-    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport, username });
+    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, notificationFrequency, mantra, competitionLevel, primaryGoal, sport, username, height, weight });
     if (fieldError) {
       return res.status(400).json({ error: fieldError });
     }
@@ -389,11 +400,13 @@ exports.completeOnboarding = async (req, res, next) => {
        position = COALESCE($11, position),
        primary_goal = COALESCE($12, primary_goal),
        username = COALESCE($13, username),
+       height = COALESCE($14, height),
+       weight = COALESCE($15, weight),
        onboarding_completed = TRUE, updated_at = NOW()
        WHERE id = $4 RETURNING *`,
       [sport, mantra || null, notificationFrequency ?? 1, req.userId, fullName || null, age || null, country || null,
        gender || null, team || null, competitionLevel || null, position || null, primaryGoal || null,
-       username ? username.toLowerCase() : null]
+       username ? username.toLowerCase() : null, height ?? null, weight ?? null]
     );
 
     if (result.rows.length === 0) {
@@ -424,9 +437,9 @@ exports.getProfile = async (req, res, next) => {
 
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username, sport } = req.body;
+    const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username, sport, height, weight, hideHeightWeight } = req.body;
 
-    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, mantra, competitionLevel, primaryGoal, sport, username });
+    const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, mantra, competitionLevel, primaryGoal, sport, username, height, weight });
     if (fieldError) {
       return res.status(400).json({ error: fieldError });
     }
@@ -454,12 +467,17 @@ exports.updateProfile = async (req, res, next) => {
       position: position,
       primary_goal: primaryGoal,
       sport: sport,
+      height: height,
+      weight: weight,
+      hide_height_weight: hideHeightWeight,
     };
 
+    const colToBodyKey = { full_name: 'fullName', competition_level: 'competitionLevel', primary_goal: 'primaryGoal', hide_height_weight: 'hideHeightWeight' };
+    const numericOrBoolCols = new Set(['height', 'weight', 'hide_height_weight', 'age']);
     for (const [col, val] of Object.entries(fieldMap)) {
-      if (req.body.hasOwnProperty(col === 'full_name' ? 'fullName' : col === 'competition_level' ? 'competitionLevel' : col === 'primary_goal' ? 'primaryGoal' : col)) {
+      if (req.body.hasOwnProperty(colToBodyKey[col] || col)) {
         updates.push(`${col} = $${paramIdx}`);
-        params.push(val || null);
+        params.push(numericOrBoolCols.has(col) ? (val ?? null) : (val || null));
         paramIdx++;
       }
     }
