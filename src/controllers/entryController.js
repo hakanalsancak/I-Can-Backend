@@ -239,7 +239,11 @@ exports.getAnalytics = async (req, res, next) => {
     let startDate, endDate;
     const now = new Date();
 
-    if (period === 'month') {
+    if (period === 'previous_month') {
+      startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+      endDate = lastDay.toISOString().split('T')[0];
+    } else if (period === 'month') {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
       const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       endDate = lastDay.toISOString().split('T')[0];
