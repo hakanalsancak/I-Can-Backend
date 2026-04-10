@@ -59,12 +59,21 @@ async function generateReportsForPeriod(reportType, periodStart, periodEnd, minE
   const users = await getPremiumUsers();
   let generated = 0;
   const CONCURRENCY = 3;
+  const PER_USER_TIMEOUT = 60000;
 
-  // Process users in parallel batches
+  const withTimeout = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Report generation timed out')), ms)),
+  ]);
+
+  // Process users in parallel batches with per-user timeout
   for (let i = 0; i < users.length; i += CONCURRENCY) {
     const batch = users.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map(user => generateReportForUser(user, reportType, periodStart, periodEnd, minEntries))
+      batch.map(user => withTimeout(
+        generateReportForUser(user, reportType, periodStart, periodEnd, minEntries),
+        PER_USER_TIMEOUT
+      ))
     );
 
     for (let j = 0; j < results.length; j++) {
@@ -73,6 +82,10 @@ async function generateReportsForPeriod(reportType, periodStart, periodEnd, minE
       } else if (results[j].status === 'rejected') {
         console.error(`${reportType} report failed for user ${batch[j].id}:`, results[j].reason.message);
       }
+    }
+
+    if ((i + CONCURRENCY) % 30 === 0 && i > 0) {
+      console.log(`${reportType} report progress: ${i + CONCURRENCY}/${users.length} users processed, ${generated} generated`);
     }
   }
 

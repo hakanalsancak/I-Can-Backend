@@ -1,7 +1,7 @@
 const { query, getClient } = require('../config/database');
 const { getClient: getOpenAI } = require('../config/openai');
 const { checkPremiumAccess } = require('../services/subscriptionService');
-const { computeStreakFromEntries } = require('./streakController');
+const { incrementalStreak } = require('./streakController');
 const { computeHealthScore } = require('../services/nutritionScorer');
 
 function formatDate(d) {
@@ -107,8 +107,8 @@ exports.submitEntry = async (req, res, next) => {
       ]
     );
 
-    // Compute the current streak from actual entries (timezone-safe, handles V1→V2 transition)
-    const currentStreak = await computeStreakFromEntries(client, req.userId);
+    // Fast incremental streak — avoids recursive CTE on every submission
+    const currentStreak = await incrementalStreak(client, req.userId);
 
     // Upsert the streaks row
     const streakResult = await client.query(

@@ -55,60 +55,57 @@ exports.getStatus = async (req, res, next) => {
     const month = getCurrentMonthBounds();
     const year = getCurrentYearBounds();
 
-    const [weekEntries, monthEntries, yearEntries, weekReport, monthReport, yearReport] = await Promise.all([
+    const [counts, reports] = await Promise.all([
       query(
-        'SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3',
-        [userId, week.start, week.end]
+        `SELECT
+           COUNT(*) FILTER (WHERE entry_date >= $2 AND entry_date <= $3) AS week_cnt,
+           COUNT(*) FILTER (WHERE entry_date >= $4 AND entry_date <= $5) AS month_cnt,
+           COUNT(*) FILTER (WHERE entry_date >= $6 AND entry_date <= $7) AS year_cnt
+         FROM daily_entries WHERE user_id = $1`,
+        [userId, week.start, week.end, month.start, month.end, year.start, year.end]
       ),
       query(
-        'SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3',
-        [userId, month.start, month.end]
-      ),
-      query(
-        'SELECT COUNT(*) as cnt FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3',
-        [userId, year.start, year.end]
-      ),
-      query(
-        'SELECT id FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND period_start = $3 AND period_end = $4 LIMIT 1',
-        [userId, 'weekly', week.start, week.end]
-      ),
-      query(
-        'SELECT id FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND period_start = $3 AND period_end = $4 LIMIT 1',
-        [userId, 'monthly', month.start, month.end]
-      ),
-      query(
-        'SELECT id FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND period_start = $3 AND period_end = $4 LIMIT 1',
-        [userId, 'yearly', year.start, year.end]
+        `SELECT report_type, id FROM ai_reports
+         WHERE user_id = $1 AND (
+           (report_type = 'weekly'  AND period_start = $2 AND period_end = $3) OR
+           (report_type = 'monthly' AND period_start = $4 AND period_end = $5) OR
+           (report_type = 'yearly'  AND period_start = $6 AND period_end = $7)
+         )`,
+        [userId, week.start, week.end, month.start, month.end, year.start, year.end]
       ),
     ]);
+
+    const c = counts.rows[0];
+    const reportMap = {};
+    for (const r of reports.rows) reportMap[r.report_type] = r.id;
 
     res.json({
       weekly: {
         periodStart: week.start,
         periodEnd: week.end,
-        entryCount: parseInt(weekEntries.rows[0].cnt),
+        entryCount: parseInt(c.week_cnt),
         requiredEntries: 3,
         daysRemaining: week.daysRemaining,
-        reportReady: weekReport.rows.length > 0,
-        reportId: weekReport.rows[0]?.id || null,
+        reportReady: !!reportMap.weekly,
+        reportId: reportMap.weekly || null,
       },
       monthly: {
         periodStart: month.start,
         periodEnd: month.end,
-        entryCount: parseInt(monthEntries.rows[0].cnt),
+        entryCount: parseInt(c.month_cnt),
         requiredEntries: 10,
         daysRemaining: month.daysRemaining,
-        reportReady: monthReport.rows.length > 0,
-        reportId: monthReport.rows[0]?.id || null,
+        reportReady: !!reportMap.monthly,
+        reportId: reportMap.monthly || null,
       },
       yearly: {
         periodStart: year.start,
         periodEnd: year.end,
-        entryCount: parseInt(yearEntries.rows[0].cnt),
+        entryCount: parseInt(c.year_cnt),
         requiredEntries: 50,
         daysRemaining: year.daysRemaining,
-        reportReady: yearReport.rows.length > 0,
-        reportId: yearReport.rows[0]?.id || null,
+        reportReady: !!reportMap.yearly,
+        reportId: reportMap.yearly || null,
       },
     });
   } catch (err) {

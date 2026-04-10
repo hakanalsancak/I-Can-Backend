@@ -44,7 +44,34 @@ async function computeStreakFromEntries(client_or_query, userId) {
   return result.rows[0].current_streak;
 }
 
+/**
+ * Fast incremental streak for the write path (entry submission).
+ * Avoids the recursive CTE by checking the streaks table directly.
+ */
+async function incrementalStreak(client_or_query, userId) {
+  const fn = typeof client_or_query === 'function' ? client_or_query : client_or_query.query.bind(client_or_query);
+  const result = await fn(
+    `SELECT current_streak, last_entry_date
+     FROM streaks WHERE user_id = $1`,
+    [userId]
+  );
+  if (result.rows.length === 0) return 1;
+  const { current_streak, last_entry_date } = result.rows[0];
+  // Compare dates in Postgres format (YYYY-MM-DD) to avoid timezone issues
+  const lastStr = last_entry_date
+    ? (last_entry_date instanceof Date ? last_entry_date.toISOString().split('T')[0] : String(last_entry_date).split('T')[0])
+    : null;
+  // Use the same Postgres-aligned date logic: check against CURRENT_DATE
+  const todayResult = await fn(`SELECT CURRENT_DATE AS today, CURRENT_DATE - 1 AS yesterday`);
+  const today = todayResult.rows[0].today.toISOString().split('T')[0];
+  const yesterday = todayResult.rows[0].yesterday.toISOString().split('T')[0];
+  if (lastStr === today) return current_streak;
+  if (lastStr === yesterday) return current_streak + 1;
+  return 1;
+}
+
 exports.computeStreakFromEntries = computeStreakFromEntries;
+exports.incrementalStreak = incrementalStreak;
 
 exports.getStreak = async (req, res, next) => {
   try {

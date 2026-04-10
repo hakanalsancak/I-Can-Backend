@@ -19,40 +19,31 @@ exports.getGlobalLeaderboard = async (req, res, next) => {
   try {
     const userId = req.userId;
 
-    const top100 = await query(
-      `SELECT
-         u.id AS user_id,
-         COALESCE(u.full_name, 'Athlete') AS full_name,
-         u.sport,
-         u.country,
-         ${EFFECTIVE_STREAK_SQL} AS current_streak,
-         s.longest_streak,
-         ROW_NUMBER() OVER (ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
-       FROM streaks s
-       JOIN users u ON u.id = s.user_id
-       WHERE u.onboarding_completed = TRUE
-       ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC
-       LIMIT 15`
-    );
-
-    const myRankResult = await query(
-      `SELECT rank, current_streak FROM (
+    const result = await query(
+      `WITH ranked AS (
          SELECT
-           s.user_id,
+           u.id AS user_id,
+           COALESCE(u.full_name, 'Athlete') AS full_name,
+           u.sport,
+           u.country,
            ${EFFECTIVE_STREAK_SQL} AS current_streak,
+           s.longest_streak,
            ROW_NUMBER() OVER (ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
          FROM streaks s
          JOIN users u ON u.id = s.user_id
          WHERE u.onboarding_completed = TRUE
-       ) ranked
-       WHERE user_id = $1`,
+       )
+       SELECT * FROM ranked WHERE rank <= 15
+       UNION ALL
+       SELECT * FROM ranked WHERE user_id = $1 AND rank > 15`,
       [userId]
     );
 
-    const myRank = myRankResult.rows[0];
+    const topRows = result.rows.filter(r => parseInt(r.rank) <= 15);
+    const myRow = result.rows.find(r => r.user_id === userId);
 
     res.json({
-      leaderboard: top100.rows.map(row => ({
+      leaderboard: topRows.map(row => ({
         rank: parseInt(row.rank),
         userId: row.user_id,
         fullName: row.user_id === userId ? row.full_name : abbreviateName(row.full_name),
@@ -62,8 +53,8 @@ exports.getGlobalLeaderboard = async (req, res, next) => {
         longestStreak: row.longest_streak,
         isMe: row.user_id === userId,
       })),
-      myRank: myRank ? parseInt(myRank.rank) : null,
-      myStreak: myRank ? (parseInt(myRank.current_streak) || 0) : 0,
+      myRank: myRow ? parseInt(myRow.rank) : null,
+      myStreak: myRow ? (parseInt(myRow.current_streak) || 0) : 0,
     });
   } catch (err) {
     next(err);
@@ -81,41 +72,31 @@ exports.getCountryLeaderboard = async (req, res, next) => {
 
     const countryCode = code.toUpperCase();
 
-    const top100 = await query(
-      `SELECT
-         u.id AS user_id,
-         COALESCE(u.full_name, 'Athlete') AS full_name,
-         u.sport,
-         u.country,
-         ${EFFECTIVE_STREAK_SQL} AS current_streak,
-         s.longest_streak,
-         ROW_NUMBER() OVER (ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
-       FROM streaks s
-       JOIN users u ON u.id = s.user_id
-       WHERE u.onboarding_completed = TRUE AND UPPER(u.country) = $1
-       ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC
-       LIMIT 15`,
-      [countryCode]
-    );
-
-    const myRankResult = await query(
-      `SELECT rank, current_streak FROM (
+    const result = await query(
+      `WITH ranked AS (
          SELECT
-           s.user_id,
+           u.id AS user_id,
+           COALESCE(u.full_name, 'Athlete') AS full_name,
+           u.sport,
+           u.country,
            ${EFFECTIVE_STREAK_SQL} AS current_streak,
+           s.longest_streak,
            ROW_NUMBER() OVER (ORDER BY ${EFFECTIVE_STREAK_SQL} DESC, s.longest_streak DESC, s.updated_at ASC) AS rank
          FROM streaks s
          JOIN users u ON u.id = s.user_id
          WHERE u.onboarding_completed = TRUE AND UPPER(u.country) = $1
-       ) ranked
-       WHERE user_id = $2`,
+       )
+       SELECT * FROM ranked WHERE rank <= 15
+       UNION ALL
+       SELECT * FROM ranked WHERE user_id = $2 AND rank > 15`,
       [countryCode, userId]
     );
 
-    const myRank = myRankResult.rows[0];
+    const topRows = result.rows.filter(r => parseInt(r.rank) <= 15);
+    const myRow = result.rows.find(r => r.user_id === userId);
 
     res.json({
-      leaderboard: top100.rows.map(row => ({
+      leaderboard: topRows.map(row => ({
         rank: parseInt(row.rank),
         userId: row.user_id,
         fullName: row.user_id === userId ? row.full_name : abbreviateName(row.full_name),
@@ -125,8 +106,8 @@ exports.getCountryLeaderboard = async (req, res, next) => {
         longestStreak: row.longest_streak,
         isMe: row.user_id === userId,
       })),
-      myRank: myRank ? parseInt(myRank.rank) : null,
-      myStreak: myRank ? (parseInt(myRank.current_streak) || 0) : 0,
+      myRank: myRow ? parseInt(myRow.rank) : null,
+      myStreak: myRow ? (parseInt(myRow.current_streak) || 0) : 0,
       countryCode,
     });
   } catch (err) {

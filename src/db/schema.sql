@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS friendships (
 );
 CREATE INDEX IF NOT EXISTS idx_friendships_user ON friendships(user_id);
 CREATE INDEX IF NOT EXISTS idx_friendships_friend ON friendships(friend_id);
+CREATE INDEX IF NOT EXISTS idx_friendships_user_friend ON friendships(user_id, friend_id);
 
 -- FRIEND REQUESTS
 CREATE TABLE IF NOT EXISTS friend_requests (
@@ -133,6 +134,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_subscriptions_transaction ON subscriptions(apple_transaction_id);
 
 -- NOTIFICATION LOG
 CREATE TABLE IF NOT EXISTS notification_log (

@@ -16,10 +16,19 @@ exports.searchUsers = async (req, res, next) => {
     const searchTerm = `%${escaped}%`;
     const seedSuffix = '%@ican.seed';
     const result = await query(
-      `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
-              u.profile_photo_url, ${EFFECTIVE_STREAK} AS current_streak
+      `SELECT u.id, u.username, u.full_name, u.sport,
+              u.profile_photo_url, ${EFFECTIVE_STREAK} AS current_streak,
+              CASE
+                WHEN f.friend_id IS NOT NULL THEN 'friends'
+                WHEN fp.receiver_id IS NOT NULL THEN 'pending'
+                WHEN fi.sender_id IS NOT NULL THEN 'incoming'
+                ELSE 'none'
+              END AS friend_status
        FROM users u
        LEFT JOIN streaks s ON s.user_id = u.id
+       LEFT JOIN friendships f ON f.user_id = $1 AND f.friend_id = u.id
+       LEFT JOIN friend_requests fp ON fp.sender_id = $1 AND fp.receiver_id = u.id AND fp.status = 'pending'
+       LEFT JOIN friend_requests fi ON fi.receiver_id = $1 AND fi.sender_id = u.id AND fi.status = 'pending'
        WHERE u.id != $1
          AND u.onboarding_completed = TRUE
          AND (u.email IS NULL OR u.email NOT LIKE $4)
@@ -31,24 +40,6 @@ exports.searchUsers = async (req, res, next) => {
       [req.userId, searchTerm, q.toLowerCase(), seedSuffix]
     );
 
-    const friendships = await query(
-      'SELECT friend_id FROM friendships WHERE user_id = $1',
-      [req.userId]
-    );
-    const friendIds = new Set(friendships.rows.map(r => r.friend_id));
-
-    const pending = await query(
-      `SELECT receiver_id FROM friend_requests WHERE sender_id = $1 AND status = 'pending'`,
-      [req.userId]
-    );
-    const pendingIds = new Set(pending.rows.map(r => r.receiver_id));
-
-    const incoming = await query(
-      `SELECT sender_id FROM friend_requests WHERE receiver_id = $1 AND status = 'pending'`,
-      [req.userId]
-    );
-    const incomingIds = new Set(incoming.rows.map(r => r.sender_id));
-
     // Search results only expose display info — team/position/country omitted to prevent harvesting
     const users = result.rows.map(u => ({
       id: u.id,
@@ -57,7 +48,7 @@ exports.searchUsers = async (req, res, next) => {
       sport: u.sport,
       profilePhotoUrl: u.profile_photo_url || null,
       currentStreak: u.current_streak || 0,
-      friendStatus: friendIds.has(u.id) ? 'friends' : pendingIds.has(u.id) ? 'pending' : incomingIds.has(u.id) ? 'incoming' : 'none',
+      friendStatus: u.friend_status,
     }));
 
     res.json(users);
