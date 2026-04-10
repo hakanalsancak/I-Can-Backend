@@ -199,7 +199,7 @@ exports.chat = async (req, res, next) => {
     // Fetch full user profile + recent daily entries in parallel
     const [userResult, entriesResult] = await Promise.all([
       query(
-        'SELECT sport, full_name, mantra, age, gender, team, competition_level, position, primary_goal FROM users WHERE id = $1',
+        'SELECT sport, full_name, mantra, age, gender, team, competition_level, position, primary_goal, height, weight FROM users WHERE id = $1',
         [req.userId]
       ),
       query(
@@ -221,6 +221,8 @@ exports.chat = async (req, res, next) => {
       if (user.team) profileParts.push(`Team: ${user.team}`);
       if (user.competition_level) profileParts.push(`Level: ${user.competition_level}`);
       if (user.primary_goal) profileParts.push(`Primary goal: ${user.primary_goal}`);
+      if (user.height != null) profileParts.push(`Height: ${user.height} cm`);
+      if (user.weight != null) profileParts.push(`Weight: ${user.weight} kg`);
       if (user.mantra) profileParts.push(`Personal mantra: "${user.mantra}"`);
       if (profileParts.length > 0) {
         systemContent += `\n\nATHLETE PROFILE:\n${profileParts.join('\n')}`;
