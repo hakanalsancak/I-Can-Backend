@@ -8,6 +8,10 @@ require('dotenv').config();
   }
 });
 
+if (!process.env.APPLE_BUNDLE_ID) {
+  throw new Error('APPLE_BUNDLE_ID must be set');
+}
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -77,12 +81,24 @@ app.use('/api/app', appRoutes);
 app.use(errorHandler);
 
 const { initCronJobs } = require('./services/cronService');
+const { pool } = require('./config/database');
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`I Can API running on port ${PORT}`);
   if (process.env.NODE_ENV === 'production') {
     initCronJobs();
   }
 });
+
+function gracefulShutdown(signal) {
+  console.log(`${signal} received, shutting down gracefully...`);
+  server.close(() => {
+    pool.end().then(() => process.exit(0)).catch(() => process.exit(1));
+  });
+  setTimeout(() => process.exit(1), 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 module.exports = app;

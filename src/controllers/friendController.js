@@ -283,11 +283,14 @@ exports.removeFriend = async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    await query('BEGIN');
     await query('DELETE FROM friendships WHERE user_id = $1 AND friend_id = $2', [req.userId, id]);
     await query('DELETE FROM friendships WHERE user_id = $1 AND friend_id = $2', [id, req.userId]);
+    await query('COMMIT');
 
     res.json({ success: true });
   } catch (err) {
+    await query('ROLLBACK').catch(() => {});
     next(err);
   }
 };

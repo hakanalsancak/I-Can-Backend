@@ -169,6 +169,11 @@ exports.verifyReceipt = async (req, res, next) => {
       return res.status(400).json({ error: 'Transaction data mismatch' });
     }
 
+    // Verify the transaction belongs to this app's bundle
+    if (jwsPayload.bundleId !== process.env.APPLE_BUNDLE_ID) {
+      return res.status(400).json({ error: 'Transaction data mismatch' });
+    }
+
     // Reject revoked transactions (payment failed, refunded, etc.)
     if (jwsPayload.revocationDate) {
       return res.status(400).json({ error: 'This transaction has been revoked' });
