@@ -277,6 +277,11 @@ exports.removeFriend = async (req, res, next) => {
     await query('BEGIN');
     await query('DELETE FROM friendships WHERE user_id = $1 AND friend_id = $2', [req.userId, id]);
     await query('DELETE FROM friendships WHERE user_id = $1 AND friend_id = $2', [id, req.userId]);
+    await query(
+      `DELETE FROM friend_requests
+       WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1)`,
+      [req.userId, id]
+    );
     await query('COMMIT');
 
     res.json({ success: true });
