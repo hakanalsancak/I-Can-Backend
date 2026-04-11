@@ -90,6 +90,14 @@ exports.sendRequest = async (req, res, next) => {
       return res.status(409).json({ error: 'A pending request already exists' });
     }
 
+    // Clean up old accepted/declined requests so a new one can be sent
+    await query(
+      `DELETE FROM friend_requests
+       WHERE ((sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1))
+         AND status IN ('accepted', 'declined')`,
+      [req.userId, receiverId]
+    );
+
     const result = await query(
       `INSERT INTO friend_requests (sender_id, receiver_id) VALUES ($1, $2) RETURNING *`,
       [req.userId, receiverId]
