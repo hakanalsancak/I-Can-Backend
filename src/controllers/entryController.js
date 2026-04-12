@@ -364,6 +364,11 @@ exports.getAnalytics = async (req, res, next) => {
               snacks: hasSnacks,
               drinks: hasDrinks,
               healthScore: storedScore,
+              breakfastText: hasBreakfast ? r.nutrition.breakfast.trim() : null,
+              lunchText: hasLunch ? r.nutrition.lunch.trim() : null,
+              dinnerText: hasDinner ? r.nutrition.dinner.trim() : null,
+              snacksText: hasSnacks ? r.nutrition.snacks.trim() : null,
+              drinksText: hasDrinks ? r.nutrition.drinks.trim() : null,
             };
             totalHealthScore += storedScore;
             // If no stored score, queue a one-time backfill via AI
@@ -398,6 +403,8 @@ exports.getAnalytics = async (req, res, next) => {
           nutrition: hasNutrition,
           sleep: hasSleep,
           sleepHours: hasSleep ? calcSleepHours(r.sleep) : null,
+          sleepTime: hasSleep && r.sleep ? r.sleep.sleepTime || null : null,
+          wakeTime: hasSleep && r.sleep ? r.sleep.wakeTime || null : null,
           trainingSessions: trainingSessions_day.length > 0 ? trainingSessions_day : null,
           trainingDuration: hasTraining ? trainingDuration : null,
           nutritionDetail,
