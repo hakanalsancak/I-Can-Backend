@@ -4,6 +4,22 @@ const crypto = require('crypto');
 const { query, getClient } = require('../config/database');
 const cloudinary = require('../config/cloudinary');
 
+// Validate an IANA timezone identifier (e.g. "Europe/Istanbul")
+function isValidTimezone(tz) {
+  if (typeof tz !== 'string' || tz.length > 50) return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch { return false; }
+}
+
+// Update the user's timezone if a valid one is provided
+async function updateTimezoneIfProvided(userId, tz) {
+  if (tz && isValidTimezone(tz)) {
+    await query('UPDATE users SET timezone = $1 WHERE id = $2', [tz, userId]);
+  }
+}
+
 function generateTokens(userId) {
   const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
   const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
@@ -67,7 +83,7 @@ async function createUserResponse(user, tokens) {
 
 exports.register = async (req, res, next) => {
   try {
-    const { email, password, fullName } = req.body;
+    const { email, password, fullName, timezone } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
@@ -103,11 +119,12 @@ exports.register = async (req, res, next) => {
       return res.status(409).json({ error: 'Unable to create account with this email' });
     }
 
+    const validTz = isValidTimezone(timezone) ? timezone : 'UTC';
     const passwordHash = await bcrypt.hash(password, 12);
     const result = await query(
-      `INSERT INTO users (email, password_hash, full_name)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [email, passwordHash, fullName || null]
+      `INSERT INTO users (email, password_hash, full_name, timezone)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [email, passwordHash, fullName || null, validTz]
     );
 
     const user = result.rows[0];
@@ -127,7 +144,7 @@ exports.register = async (req, res, next) => {
 
 exports.login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, timezone } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
@@ -150,6 +167,7 @@ exports.login = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    await updateTimezoneIfProvided(user.id, timezone);
     const tokens = generateTokens(user.id);
     await storeRefreshToken(user.id, tokens.refreshToken);
     const response = await createUserResponse(user, tokens);
@@ -161,7 +179,7 @@ exports.login = async (req, res, next) => {
 
 exports.appleSignIn = async (req, res, next) => {
   try {
-    const { identityToken, fullName } = req.body;
+    const { identityToken, fullName, timezone } = req.body;
     if (!identityToken) {
       return res.status(400).json({ error: 'Identity token is required' });
     }
@@ -199,10 +217,11 @@ exports.appleSignIn = async (req, res, next) => {
       }
 
       if (result.rows.length === 0) {
+        const validTz = isValidTimezone(timezone) ? timezone : 'UTC';
         result = await query(
-          `INSERT INTO users (apple_id, email, full_name)
-           VALUES ($1, $2, $3) RETURNING *`,
-          [appleId, email, name]
+          `INSERT INTO users (apple_id, email, full_name, timezone)
+           VALUES ($1, $2, $3, $4) RETURNING *`,
+          [appleId, email, name, validTz]
         );
 
         const user = result.rows[0];
@@ -215,6 +234,7 @@ exports.appleSignIn = async (req, res, next) => {
     }
 
     const user = result.rows[0];
+    await updateTimezoneIfProvided(user.id, timezone);
     const tokens = generateTokens(user.id);
     await storeRefreshToken(user.id, tokens.refreshToken);
     const response = await createUserResponse(user, tokens);
@@ -227,7 +247,7 @@ exports.appleSignIn = async (req, res, next) => {
 
 exports.googleSignIn = async (req, res, next) => {
   try {
-    const { idToken } = req.body;
+    const { idToken, timezone } = req.body;
     if (!idToken) {
       return res.status(400).json({ error: 'ID token is required' });
     }
@@ -258,10 +278,11 @@ exports.googleSignIn = async (req, res, next) => {
         await query('UPDATE users SET google_id = $1 WHERE id = $2', [googleId, result.rows[0].id]);
         result = await query('SELECT * FROM users WHERE id = $1', [result.rows[0].id]);
       } else {
+        const validTz = isValidTimezone(timezone) ? timezone : 'UTC';
         result = await query(
-          `INSERT INTO users (google_id, email, full_name)
-           VALUES ($1, $2, $3) RETURNING *`,
-          [googleId, email, fullName]
+          `INSERT INTO users (google_id, email, full_name, timezone)
+           VALUES ($1, $2, $3, $4) RETURNING *`,
+          [googleId, email, fullName, validTz]
         );
 
         const user = result.rows[0];
@@ -274,6 +295,7 @@ exports.googleSignIn = async (req, res, next) => {
     }
 
     const user = result.rows[0];
+    await updateTimezoneIfProvided(user.id, timezone);
     const tokens = generateTokens(user.id);
     await storeRefreshToken(user.id, tokens.refreshToken);
     const response = await createUserResponse(user, tokens);

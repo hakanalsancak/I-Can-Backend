@@ -236,25 +236,38 @@ exports.getAnalytics = async (req, res, next) => {
     const { period } = req.query; // 'week' or 'month'
     const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+    // Use the user's stored timezone so week/month boundaries match their local clock
+    const userRow = await query('SELECT timezone FROM users WHERE id = $1', [req.userId]);
+    const tz = (userRow.rows[0] && userRow.rows[0].timezone) || 'UTC';
+
+    // Build "now" in the user's timezone using Intl
+    const parts = {};
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+    const nowYear = parseInt(parts.year);
+    const nowMonth = parseInt(parts.month); // 1-based
+    const nowDay = parseInt(parts.day);
+    // Reconstruct a UTC Date that represents the user's local date
+    const now = new Date(Date.UTC(nowYear, nowMonth - 1, nowDay));
+
     let startDate, endDate;
-    const now = new Date();
 
     if (period === 'previous_month') {
-      startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
-      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+      startDate = new Date(Date.UTC(nowYear, nowMonth - 2, 1)).toISOString().split('T')[0];
+      const lastDay = new Date(Date.UTC(nowYear, nowMonth - 1, 0));
       endDate = lastDay.toISOString().split('T')[0];
     } else if (period === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      startDate = new Date(Date.UTC(nowYear, nowMonth - 1, 1)).toISOString().split('T')[0];
+      const lastDay = new Date(Date.UTC(nowYear, nowMonth, 0));
       endDate = lastDay.toISOString().split('T')[0];
     } else {
       // Default to week (Monday–Sunday)
-      const day = now.getDay(); // 0=Sun, 1=Mon, ...
+      const day = now.getUTCDay(); // 0=Sun, 1=Mon, ...
       const diffToMonday = day === 0 ? 6 : day - 1;
-      const weekStart = new Date(now);
-      weekStart.setDate(now.getDate() - diffToMonday);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
+      const weekStart = new Date(Date.UTC(nowYear, nowMonth - 1, nowDay - diffToMonday));
+      const weekEnd = new Date(Date.UTC(nowYear, nowMonth - 1, nowDay - diffToMonday + 6));
       startDate = weekStart.toISOString().split('T')[0];
       endDate = weekEnd.toISOString().split('T')[0];
     }

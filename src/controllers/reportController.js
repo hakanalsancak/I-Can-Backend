@@ -9,14 +9,27 @@ function formatDate(d) {
   return s;
 }
 
-function getCurrentWeekBounds() {
-  const now = new Date();
-  const day = now.getDay();
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-  monday.setHours(0, 0, 0, 0);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
+// Resolve the user's local date components from their stored timezone
+function getUserLocalDate(tz) {
+  const parts = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+  return {
+    year: parseInt(parts.year),
+    month: parseInt(parts.month), // 1-based
+    day: parseInt(parts.day),
+  };
+}
+
+function getCurrentWeekBounds(tz) {
+  const { year, month, day } = getUserLocalDate(tz);
+  const now = new Date(Date.UTC(year, month - 1, day));
+  const dow = now.getUTCDay(); // 0=Sun
+  const diffToMonday = dow === 0 ? 6 : dow - 1;
+  const monday = new Date(Date.UTC(year, month - 1, day - diffToMonday));
+  const sunday = new Date(Date.UTC(year, month - 1, day - diffToMonday + 6));
   return {
     start: monday.toISOString().split('T')[0],
     end: sunday.toISOString().split('T')[0],
@@ -24,22 +37,23 @@ function getCurrentWeekBounds() {
   };
 }
 
-function getCurrentMonthBounds() {
-  const now = new Date();
-  const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+function getCurrentMonthBounds(tz) {
+  const { year, month, day } = getUserLocalDate(tz);
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0));
   return {
     start,
     end: lastDay.toISOString().split('T')[0],
-    daysRemaining: Math.max(0, lastDay.getDate() - now.getDate()),
+    daysRemaining: Math.max(0, lastDay.getUTCDate() - day),
   };
 }
 
-function getCurrentYearBounds() {
-  const now = new Date();
-  const start = `${now.getFullYear()}-01-01`;
-  const end = `${now.getFullYear()}-12-31`;
-  const endDate = new Date(now.getFullYear(), 11, 31);
+function getCurrentYearBounds(tz) {
+  const { year, month, day } = getUserLocalDate(tz);
+  const start = `${year}-01-01`;
+  const end = `${year}-12-31`;
+  const now = new Date(Date.UTC(year, month - 1, day));
+  const endDate = new Date(Date.UTC(year, 11, 31));
   return {
     start,
     end,
@@ -51,9 +65,13 @@ exports.getStatus = async (req, res, next) => {
   try {
     const userId = req.userId;
 
-    const week = getCurrentWeekBounds();
-    const month = getCurrentMonthBounds();
-    const year = getCurrentYearBounds();
+    // Use the user's stored timezone so period boundaries match their local clock
+    const userRow = await query('SELECT timezone FROM users WHERE id = $1', [userId]);
+    const tz = (userRow.rows[0] && userRow.rows[0].timezone) || 'UTC';
+
+    const week = getCurrentWeekBounds(tz);
+    const month = getCurrentMonthBounds(tz);
+    const year = getCurrentYearBounds(tz);
 
     const [counts, reports] = await Promise.all([
       query(
