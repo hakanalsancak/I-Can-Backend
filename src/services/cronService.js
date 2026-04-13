@@ -13,6 +13,32 @@ async function getPremiumUsers() {
   return result.rows;
 }
 
+// Get premium users whose local midnight hour (00:xx) is right now
+async function getPremiumUsersAtLocalMidnight() {
+  const result = await query(
+    `SELECT DISTINCT u.id, u.timezone FROM users u
+     JOIN subscriptions s ON s.user_id = u.id
+     WHERE ((s.status = 'active' AND s.current_period_end > NOW()) OR (s.status = 'trial' AND s.trial_end > NOW()))
+     AND u.onboarding_completed = TRUE
+     AND EXTRACT(HOUR FROM NOW() AT TIME ZONE COALESCE(u.timezone, 'UTC')) = 0`
+  );
+  return result.rows;
+}
+
+// Helper: get the local date parts for a user's timezone
+function getLocalDateParts(tz) {
+  const parts = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
+  }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+  return {
+    year: parseInt(parts.year),
+    month: parseInt(parts.month),
+    day: parseInt(parts.day),
+    weekday: parts.weekday, // Mon, Tue, etc.
+  };
+}
+
 async function sendReportNotification(userId, reportType, periodLabel) {
   try {
     const tokens = await query('SELECT token FROM device_tokens WHERE user_id = $1', [userId]);
@@ -57,8 +83,12 @@ async function generateReportForUser(user, reportType, periodStart, periodEnd, m
 
 async function generateReportsForPeriod(reportType, periodStart, periodEnd, minEntries) {
   const users = await getPremiumUsers();
+  return await processUserBatch(users, reportType, periodStart, periodEnd, minEntries);
+}
+
+async function processUserBatch(users, reportType, periodStart, periodEnd, minEntries) {
   let generated = 0;
-  const CONCURRENCY = 3;
+  const CONCURRENCY = 20;
   const PER_USER_TIMEOUT = 60000;
 
   const withTimeout = (promise, ms) => Promise.race([
@@ -84,12 +114,85 @@ async function generateReportsForPeriod(reportType, periodStart, periodEnd, minE
       }
     }
 
-    if ((i + CONCURRENCY) % 30 === 0 && i > 0) {
+    if ((i + CONCURRENCY) % 100 === 0 && i > 0) {
       console.log(`${reportType} report progress: ${i + CONCURRENCY}/${users.length} users processed, ${generated} generated`);
     }
   }
 
   return generated;
+}
+
+// Compute the Mon-Sun week bounds for a given IANA timezone
+function getWeekBoundsForTimezone(tz) {
+  const parts = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+  const year = parseInt(parts.year);
+  const month = parseInt(parts.month);
+  const day = parseInt(parts.day);
+  const local = new Date(Date.UTC(year, month - 1, day));
+  const dow = local.getUTCDay(); // 0=Sun
+  const diffToMonday = dow === 0 ? 6 : dow - 1;
+  const monday = new Date(Date.UTC(year, month - 1, day - diffToMonday));
+  const sunday = new Date(Date.UTC(year, month - 1, day - diffToMonday + 6));
+  return {
+    start: monday.toISOString().split('T')[0],
+    end: sunday.toISOString().split('T')[0],
+  };
+}
+
+// Compute previous month bounds for a given IANA timezone
+function getMonthBoundsForTimezone(tz) {
+  const parts = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+  const year = parseInt(parts.year);
+  const month = parseInt(parts.month); // 1-based
+  const prevStart = new Date(Date.UTC(year, month - 2, 1));
+  const prevEnd = new Date(Date.UTC(year, month - 1, 0));
+  return {
+    start: prevStart.toISOString().split('T')[0],
+    end: prevEnd.toISOString().split('T')[0],
+  };
+}
+
+// Compute previous year bounds for a given IANA timezone
+function getYearBoundsForTimezone(tz) {
+  const parts = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric',
+  }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+  const prevYear = parseInt(parts.year) - 1;
+  return {
+    start: `${prevYear}-01-01`,
+    end: `${prevYear}-12-31`,
+  };
+}
+
+// Generate reports for a list of users, grouping by timezone to compute correct period bounds
+async function generateTimezoneAwareReports(users, reportType, minEntries, boundsFn) {
+  // Group users by their period bounds (users in same timezone offset share bounds)
+  const groups = {};
+  for (const user of users) {
+    const tz = user.timezone || 'UTC';
+    const bounds = boundsFn(tz);
+    const key = `${bounds.start}_${bounds.end}`;
+    if (!groups[key]) groups[key] = { ...bounds, users: [] };
+    groups[key].users.push(user);
+  }
+
+  let totalGenerated = 0;
+  for (const key of Object.keys(groups)) {
+    const { start, end, users: groupUsers } = groups[key];
+    const count = await processUserBatch(groupUsers, reportType, start, end, minEntries);
+    totalGenerated += count;
+    if (Object.keys(groups).length > 1) {
+      console.log(`${reportType} reports for period ${start} – ${end}: ${count} generated (${groupUsers.length} users)`);
+    }
+  }
+  return totalGenerated;
 }
 
 async function catchUpMissedReports() {
@@ -175,55 +278,51 @@ function initCronJobs() {
   // Run catch-up on startup (delayed 10s to let DB connections settle)
   setTimeout(() => catchUpMissedReports().catch(err => console.error('Catch-up error:', err.message)), 10000);
 
-  // Weekly: Monday 00:00 UTC — generates report for previous Mon-Sun
-  cron.schedule('0 0 * * 1', async () => {
-    console.log('Running weekly report generation...');
+  // Timezone-aware report generation — runs every hour, generates reports
+  // for users whose local time just hit midnight on the relevant day.
+  // UK users get reports at UK midnight, Turkey at Turkey midnight, US at US midnight, etc.
+  cron.schedule('0 * * * *', async () => {
     try {
-      const now = new Date();
-      const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
-      const monday = new Date(Date.UTC(sunday.getUTCFullYear(), sunday.getUTCMonth(), sunday.getUTCDate() - 6));
+      // Find all premium users whose local time is currently 00:xx (midnight hour)
+      const midnightUsers = await getPremiumUsersAtLocalMidnight();
+      if (midnightUsers.length === 0) return;
 
-      const periodStart = monday.toISOString().split('T')[0];
-      const periodEnd = sunday.toISOString().split('T')[0];
+      // Categorize by what day it is locally for each user
+      const weeklyUsers = [];
+      const monthlyUsers = [];
+      const yearlyUsers = [];
 
-      const count = await generateReportsForPeriod('weekly', periodStart, periodEnd, 3);
-      console.log(`Generated ${count} weekly reports for ${periodStart} – ${periodEnd}`);
+      for (const user of midnightUsers) {
+        const tz = user.timezone || 'UTC';
+        const local = getLocalDateParts(tz);
+
+        // Weekly: it's Monday locally
+        if (local.weekday === 'Mon') weeklyUsers.push(user);
+        // Monthly: it's the 1st locally
+        if (local.day === 1) monthlyUsers.push(user);
+        // Yearly: it's Jan 1 locally
+        if (local.month === 1 && local.day === 1) yearlyUsers.push(user);
+      }
+
+      if (weeklyUsers.length > 0) {
+        console.log(`Weekly report: ${weeklyUsers.length} users hitting Monday midnight`);
+        const count = await generateTimezoneAwareReports(weeklyUsers, 'weekly', 3, getWeekBoundsForTimezone);
+        console.log(`Generated ${count} weekly reports`);
+      }
+
+      if (monthlyUsers.length > 0) {
+        console.log(`Monthly report: ${monthlyUsers.length} users hitting 1st of month midnight`);
+        const count = await generateTimezoneAwareReports(monthlyUsers, 'monthly', 10, getMonthBoundsForTimezone);
+        console.log(`Generated ${count} monthly reports`);
+      }
+
+      if (yearlyUsers.length > 0) {
+        console.log(`Yearly report: ${yearlyUsers.length} users hitting Jan 1 midnight`);
+        const count = await generateTimezoneAwareReports(yearlyUsers, 'yearly', 50, getYearBoundsForTimezone);
+        console.log(`Generated ${count} yearly reports`);
+      }
     } catch (err) {
-      console.error('Weekly report cron error:', err.message);
-    }
-  }, { timezone: 'UTC' });
-
-  // Monthly: 1st of month 00:00 UTC — generates report for previous month
-  cron.schedule('0 0 1 * *', async () => {
-    console.log('Running monthly report generation...');
-    try {
-      const now = new Date();
-      const prevMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-      const lastDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
-
-      const periodStart = prevMonth.toISOString().split('T')[0];
-      const periodEnd = lastDay.toISOString().split('T')[0];
-
-      const count = await generateReportsForPeriod('monthly', periodStart, periodEnd, 10);
-      console.log(`Generated ${count} monthly reports for ${periodStart} – ${periodEnd}`);
-    } catch (err) {
-      console.error('Monthly report cron error:', err.message);
-    }
-  }, { timezone: 'UTC' });
-
-  // Yearly: Jan 1 00:00 UTC — generates report for previous year
-  cron.schedule('0 0 1 1 *', async () => {
-    console.log('Running yearly report generation...');
-    try {
-      const now = new Date();
-      const prevYear = now.getUTCFullYear() - 1;
-      const periodStart = `${prevYear}-01-01`;
-      const periodEnd = `${prevYear}-12-31`;
-
-      const count = await generateReportsForPeriod('yearly', periodStart, periodEnd, 50);
-      console.log(`Generated ${count} yearly reports for ${periodStart} – ${periodEnd}`);
-    } catch (err) {
-      console.error('Yearly report cron error:', err.message);
+      console.error('Report generation cron error:', err.message);
     }
   }, { timezone: 'UTC' });
 
