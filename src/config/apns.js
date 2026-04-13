@@ -55,7 +55,7 @@ async function sendPush(deviceTokens, { title, body, data = {} }) {
   notification.sound = 'default';
   notification.alert = { title, body };
   notification.payload = data;
-  notification.topic = 'com.hakanalsancak.I-Can';
+  notification.topic = process.env.APNS_BUNDLE_ID || 'com.alsancar.I-Can';
 
   try {
     const result = await p.send(notification, deviceTokens);
