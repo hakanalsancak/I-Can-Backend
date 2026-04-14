@@ -396,8 +396,9 @@ function initCronJobs() {
       for (const user of users) {
         try {
           const quote = getRandomQuote();
-          if (user.token) {
-            await sendPush([user.token], {
+          const tokens = (user.tokens || []).filter(Boolean);
+          if (tokens.length > 0) {
+            await sendPush(tokens, {
               title: 'I Can',
               body: quote,
               data: { type: 'motivational_quote' },

@@ -28,10 +28,13 @@ function getRandomQuote() {
 }
 
 async function getUsersForNotification(frequency) {
+  // Aggregate all device tokens per user so each user receives exactly one
+  // notification even if multiple (possibly stale) tokens are registered.
   const result = await query(
-    `SELECT u.id, dt.token FROM users u
+    `SELECT u.id, ARRAY_AGG(dt.token) AS tokens FROM users u
      JOIN device_tokens dt ON dt.user_id = u.id
-     WHERE u.notification_frequency >= $1`,
+     WHERE u.notification_frequency >= $1
+     GROUP BY u.id`,
     [frequency]
   );
   return result.rows;

@@ -28,6 +28,7 @@ exports.registerDeviceToken = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid device token format' });
     }
 
+    await query('DELETE FROM device_tokens WHERE user_id = $1 AND token <> $2', [req.userId, token]);
     await query(
       `INSERT INTO device_tokens (user_id, token, platform)
        VALUES ($1, $2, 'ios')
