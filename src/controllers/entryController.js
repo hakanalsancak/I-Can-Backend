@@ -552,13 +552,14 @@ exports.generateInsight = async (req, res, next) => {
       recoveryActivities, sportStudy, restTomorrowFocus,
       reflectionPositive, reflectionImprove, proudMoment,
       trainingSessions, sessionScore,
+      nutrition,
     } = req.body;
 
     if (!activityType) {
       return res.status(400).json({ error: 'Activity type is required' });
     }
 
-    const VALID_INSIGHT_TYPES = ['Training', 'Game', 'Rest Day', 'Other', 'Daily Log'];
+    const VALID_INSIGHT_TYPES = ['Training', 'Game', 'Rest Day', 'Other', 'Daily Log', 'Nutrition Log'];
     if (!VALID_INSIGHT_TYPES.includes(activityType)) {
       return res.status(400).json({ error: `Activity type must be one of: ${VALID_INSIGHT_TYPES.join(', ')}` });
     }
@@ -605,6 +606,26 @@ exports.generateInsight = async (req, res, next) => {
     if (trainingSessions != null) {
       if (!Array.isArray(trainingSessions) || trainingSessions.length > 10) {
         return res.status(400).json({ error: 'trainingSessions must be an array with at most 10 items' });
+      }
+    }
+
+    // Validate nutrition
+    if (nutrition != null) {
+      if (typeof nutrition !== 'object' || Array.isArray(nutrition)) {
+        return res.status(400).json({ error: 'nutrition must be an object' });
+      }
+      const nStr = ['breakfast', 'lunch', 'dinner', 'snacks', 'drinks'];
+      for (const k of nStr) {
+        const v = nutrition[k];
+        if (v != null && (typeof v !== 'string' || v.length > MAX_FIELD)) {
+          return res.status(400).json({ error: `nutrition.${k} must be a string of ${MAX_FIELD} characters or less` });
+        }
+      }
+      for (const k of ['healthScore', 'mealsLogged']) {
+        const v = nutrition[k];
+        if (v != null && (typeof v !== 'number' || !Number.isFinite(v))) {
+          return res.status(400).json({ error: `nutrition.${k} must be a finite number` });
+        }
       }
     }
 
@@ -688,7 +709,32 @@ exports.generateInsight = async (req, res, next) => {
     if (reflectionImprove) logSummary += `What to improve: ${reflectionImprove}\n`;
     if (proudMoment) logSummary += `Proudest moment: ${proudMoment}\n`;
 
-    const systemPrompt = `You are an elite sports performance coach helping athletes improve their mindset, focus, and discipline.
+    if (nutrition && typeof nutrition === 'object') {
+      logSummary += `\nNutrition:\n`;
+      if (nutrition.healthScore != null) logSummary += `  Health score: ${nutrition.healthScore}/100\n`;
+      if (nutrition.mealsLogged != null) logSummary += `  Meals logged: ${nutrition.mealsLogged}\n`;
+      if (nutrition.breakfast) logSummary += `  Breakfast: ${nutrition.breakfast.substring(0, 200)}\n`;
+      if (nutrition.lunch) logSummary += `  Lunch: ${nutrition.lunch.substring(0, 200)}\n`;
+      if (nutrition.dinner) logSummary += `  Dinner: ${nutrition.dinner.substring(0, 200)}\n`;
+      if (nutrition.snacks) logSummary += `  Snacks: ${nutrition.snacks.substring(0, 200)}\n`;
+      if (nutrition.drinks) logSummary += `  Drinks: ${nutrition.drinks.substring(0, 200)}\n`;
+    }
+
+    const isNutrition = activityType === 'Nutrition Log';
+
+    const nutritionPrompt = `You are an elite sports nutrition coach giving blunt, honest feedback to an athlete.
+
+Rules:
+- Read the meals the athlete actually ate and comment on specific foods by name.
+- If they ate junk food (chips, soda, candy, fast food, fried food, sugary drinks), call it out directly and warn them they will not reach an elite health score if they keep eating it.
+- If they ate clean, high-quality whole foods, acknowledge it briefly and tell them to keep it up.
+- If meals are missing, tell them exactly which meal to add and what a good version looks like.
+- Be direct, coach-like, and a little tough — no soft language, no hedging.
+- Never invent foods that are not in the log.
+- 25 to 40 words, maximum 3 sentences.
+- No quotation marks. Respond with only the insight.`;
+
+    const defaultPrompt = `You are an elite sports performance coach helping athletes improve their mindset, focus, and discipline.
 
 Generate a short coaching insight based strictly on the athlete's log.
 
@@ -710,10 +756,10 @@ Rules:
       openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: isNutrition ? nutritionPrompt : defaultPrompt },
           { role: 'user', content: `Here is the athlete's daily log:\n\n${logSummary}` },
         ],
-        max_tokens: 60,
+        max_tokens: isNutrition ? 120 : 60,
         temperature: 0.7,
       }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Insight generation timed out')), TIMEOUT_MS)),
