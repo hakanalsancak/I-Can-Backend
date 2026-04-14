@@ -551,13 +551,14 @@ exports.generateInsight = async (req, res, next) => {
       gameStats, bestMoment, biggestMistake, improveNextGame,
       recoveryActivities, sportStudy, restTomorrowFocus,
       reflectionPositive, reflectionImprove, proudMoment,
+      trainingSessions, sessionScore,
     } = req.body;
 
     if (!activityType) {
       return res.status(400).json({ error: 'Activity type is required' });
     }
 
-    const VALID_INSIGHT_TYPES = ['Training', 'Game', 'Rest Day', 'Other'];
+    const VALID_INSIGHT_TYPES = ['Training', 'Game', 'Rest Day', 'Other', 'Daily Log'];
     if (!VALID_INSIGHT_TYPES.includes(activityType)) {
       return res.status(400).json({ error: `Activity type must be one of: ${VALID_INSIGHT_TYPES.join(', ')}` });
     }
@@ -600,8 +601,69 @@ exports.generateInsight = async (req, res, next) => {
       }
     }
 
+    // Validate trainingSessions (V2 training log)
+    if (trainingSessions != null) {
+      if (!Array.isArray(trainingSessions) || trainingSessions.length > 10) {
+        return res.status(400).json({ error: 'trainingSessions must be an array with at most 10 items' });
+      }
+    }
+
     let logSummary = `Activity: ${activityType}\n`;
 
+    // V2 Training Sessions (from Daily Log training section)
+    if (Array.isArray(trainingSessions) && trainingSessions.length > 0) {
+      trainingSessions.forEach((s, i) => {
+        logSummary += `\nSession ${i + 1}: ${s.trainingType || 'unknown'}\n`;
+        switch (s.trainingType) {
+          case 'match':
+            if (s.matchType) logSummary += `  Type: ${s.matchType}\n`;
+            if (s.result) logSummary += `  Result: ${s.result}\n`;
+            if (s.performanceRating) logSummary += `  Performance: ${s.performanceRating}/10\n`;
+            if (s.minutesPlayed) logSummary += `  Minutes played: ${s.minutesPlayed}\n`;
+            if (s.position) logSummary += `  Position: ${s.position}\n`;
+            if (s.keyStats && Object.keys(s.keyStats).length > 0) {
+              const stats = Object.entries(s.keyStats).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}`).join(', ');
+              if (stats) logSummary += `  Stats: ${stats}\n`;
+            }
+            break;
+          case 'gym':
+            if (s.gymFocus) logSummary += `  Focus: ${s.gymFocus}\n`;
+            if (s.duration) logSummary += `  Duration: ${s.duration}min\n`;
+            if (s.effortLevel) logSummary += `  Effort: ${s.effortLevel}\n`;
+            if (Array.isArray(s.exercises) && s.exercises.length > 0) logSummary += `  Exercises: ${s.exercises.join(', ')}\n`;
+            break;
+          case 'cardio':
+            if (s.cardioType) logSummary += `  Type: ${s.cardioType}\n`;
+            if (s.distance) logSummary += `  Distance: ${s.distance}km\n`;
+            if (s.duration) logSummary += `  Time: ${s.duration}min\n`;
+            if (s.pace) logSummary += `  Pace: ${s.pace}\n`;
+            if (s.cardioEffort) logSummary += `  Effort: ${s.cardioEffort}\n`;
+            break;
+          case 'technical':
+            if (s.skillTrained) logSummary += `  Skill: ${s.skillTrained}\n`;
+            if (s.duration) logSummary += `  Duration: ${s.duration}min\n`;
+            if (s.focusQuality) logSummary += `  Focus quality: ${s.focusQuality}\n`;
+            break;
+          case 'tactical':
+            if (s.tacticalType) logSummary += `  Type: ${s.tacticalType}\n`;
+            if (s.duration) logSummary += `  Duration: ${s.duration}min\n`;
+            if (s.understandingLevel) logSummary += `  Understanding: ${s.understandingLevel}\n`;
+            break;
+          case 'recovery':
+            if (s.recoveryType) logSummary += `  Type: ${s.recoveryType}\n`;
+            if (s.duration) logSummary += `  Duration: ${s.duration}min\n`;
+            break;
+          default:
+            if (s.duration) logSummary += `  Duration: ${s.duration}min\n`;
+            break;
+        }
+        if (s.sessionScore) logSummary += `  Session score: ${s.sessionScore}/100\n`;
+        if (s.notes) logSummary += `  Notes: ${s.notes.substring(0, 200)}\n`;
+      });
+      if (sessionScore) logSummary += `Overall session score: ${sessionScore}/100\n`;
+    }
+
+    // V1 Training (legacy)
     if (activityType === 'Training') {
       if (trainingAreas && trainingAreas.length) logSummary += `Worked on: ${trainingAreas.join(', ')}\n`;
       if (skillImproved) logSummary += `Skill that improved most: ${skillImproved}\n`;

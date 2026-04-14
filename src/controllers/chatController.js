@@ -110,8 +110,54 @@ function buildRecentEntriesSummary(entries) {
         const sessionParts = responses.training.sessions.map(s => {
           const bits = [];
           if (s.trainingType) bits.push(s.trainingType);
-          if (s.duration) bits.push(`${s.duration}min`);
-          if (s.intensity) bits.push(s.intensity);
+
+          // Type-specific fields
+          switch (s.trainingType) {
+            case 'match':
+              if (s.matchType) bits.push(s.matchType);
+              if (s.result) bits.push(`result:${s.result}`);
+              if (s.performanceRating) bits.push(`performance:${s.performanceRating}/10`);
+              if (s.minutesPlayed) bits.push(`${s.minutesPlayed}min played`);
+              if (s.position) bits.push(`position:${s.position}`);
+              if (s.keyStats && Object.keys(s.keyStats).length > 0) {
+                const stats = Object.entries(s.keyStats).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(', ');
+                if (stats) bits.push(`stats(${stats})`);
+              }
+              break;
+            case 'gym':
+              if (s.gymFocus) bits.push(`focus:${s.gymFocus}`);
+              if (s.duration) bits.push(`${s.duration}min`);
+              if (s.effortLevel) bits.push(`effort:${s.effortLevel}`);
+              if (Array.isArray(s.exercises) && s.exercises.length > 0) bits.push(`exercises:${s.exercises.join(', ')}`);
+              break;
+            case 'cardio':
+              if (s.cardioType) bits.push(s.cardioType);
+              if (s.distance) bits.push(`${s.distance}km`);
+              if (s.duration) bits.push(`${s.duration}min`);
+              if (s.pace) bits.push(`pace:${s.pace}`);
+              if (s.cardioEffort) bits.push(`effort:${s.cardioEffort}`);
+              break;
+            case 'technical':
+              if (s.skillTrained) bits.push(`skill:${s.skillTrained}`);
+              if (s.duration) bits.push(`${s.duration}min`);
+              if (s.focusQuality) bits.push(`quality:${s.focusQuality}`);
+              break;
+            case 'tactical':
+              if (s.tacticalType) bits.push(s.tacticalType);
+              if (s.duration) bits.push(`${s.duration}min`);
+              if (s.understandingLevel) bits.push(`understanding:${s.understandingLevel}`);
+              break;
+            case 'recovery':
+              if (s.recoveryType) bits.push(s.recoveryType);
+              if (s.duration) bits.push(`${s.duration}min`);
+              break;
+            default:
+              if (s.duration) bits.push(`${s.duration}min`);
+              if (s.intensity) bits.push(s.intensity);
+              break;
+          }
+
+          if (s.sessionScore) bits.push(`score:${s.sessionScore}/100`);
           if (Array.isArray(s.details) && s.details.length > 0) bits.push(s.details.join(', '));
           if (s.notes) bits.push(`"${s.notes.substring(0, 60)}"`);
           return bits.join(' ');
