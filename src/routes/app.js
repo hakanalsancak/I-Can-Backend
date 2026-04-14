@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-const MIN_VERSION = process.env.MIN_APP_VERSION || '1.1.6';
+const MIN_VERSION = process.env.MIN_APP_VERSION || '1.2.0';
 
 function compareVersions(a, b) {
   const partsA = a.split('.').map(Number);
