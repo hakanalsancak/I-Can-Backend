@@ -698,8 +698,8 @@ Rules:
 - Highlight one positive behavior.
 - Suggest one improvement if possible.
 - Write like a real coach speaking to an athlete.
-- Keep the response between 20 and 40 words.
-- Maximum 3 sentences.
+- Keep the response between 12 and 22 words.
+- Maximum 2 sentences.
 - Be motivational but realistic.
 - Do NOT use quotation marks around your response.
 - Respond with only the coaching insight, nothing else.`;
@@ -713,7 +713,7 @@ Rules:
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Here is the athlete's daily log:\n\n${logSummary}` },
         ],
-        max_tokens: 100,
+        max_tokens: 60,
         temperature: 0.7,
       }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Insight generation timed out')), TIMEOUT_MS)),
