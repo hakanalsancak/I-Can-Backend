@@ -28,6 +28,10 @@ exports.registerDeviceToken = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid device token format' });
     }
 
+    // A given APNS token uniquely identifies one physical device. Remove the
+    // token from any other user rows so signing into a different account on
+    // the same device doesn't leave stale mappings that cause duplicate pushes.
+    await query('DELETE FROM device_tokens WHERE token = $1 AND user_id <> $2', [token, req.userId]);
     await query('DELETE FROM device_tokens WHERE user_id = $1 AND token <> $2', [req.userId, token]);
     await query(
       `INSERT INTO device_tokens (user_id, token, platform)

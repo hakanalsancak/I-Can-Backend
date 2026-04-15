@@ -1,6 +1,9 @@
 const apn = require('@parse/node-apn');
 const path = require('path');
 const fs = require('fs');
+const { query } = require('./database');
+
+const PRUNE_REASONS = new Set(['BadDeviceToken', 'Unregistered', 'DeviceTokenNotForTopic']);
 
 let provider = null;
 
@@ -51,7 +54,7 @@ async function sendPush(deviceTokens, { title, body, data = {} }) {
 
   const notification = new apn.Notification();
   notification.expiry = Math.floor(Date.now() / 1000) + 3600;
-  notification.badge = 1;
+  notification.badge = 0;
   notification.sound = 'default';
   notification.alert = { title, body };
   notification.payload = data;
@@ -61,6 +64,17 @@ async function sendPush(deviceTokens, { title, body, data = {} }) {
     const result = await p.send(notification, deviceTokens);
     if (result.failed.length > 0) {
       console.error('APNS failed deliveries:', result.failed.map(f => f.response?.reason || f.error));
+      const deadTokens = result.failed
+        .filter(f => PRUNE_REASONS.has(f.response?.reason))
+        .map(f => f.device)
+        .filter(Boolean);
+      if (deadTokens.length > 0) {
+        try {
+          await query('DELETE FROM device_tokens WHERE token = ANY($1::varchar[])', [deadTokens]);
+        } catch (pruneErr) {
+          console.error('Failed to prune dead device tokens:', pruneErr.message);
+        }
+      }
     }
     return result;
   } catch (err) {
