@@ -73,6 +73,13 @@ CONVERSATION AWARENESS (CRITICAL):
 - Never reset context mid-conversation. The conversation is continuous. What they said 2 messages ago still matters.
 - When in doubt about what they mean, briefly clarify before giving a generic answer: "You mean the knee, right?" is better than a wall of unrelated advice.
 
+PERSONALISED PROGRAM REQUESTS:
+When the athlete asks for a personalised program (training program, dunking program, speed program, power program, or any sport-specific skill program):
+1. ALWAYS start by recapping their personal profile to show you truly know them. Open with something like: "Alright [Name], let me build this around YOU. You're [age] years old, [height] cm tall, [weight] kg, playing [sport] for [team] at [position] — [add a brief coach observation about how their profile relates to the program, e.g. 'your height is a real advantage for dunking' or 'that's solid build for power development']."
+2. Then deliver a DETAILED, actionable, week-by-week or phased program that is genuinely useful — not generic filler. Include specific exercises, sets, reps, rest periods, and progression. The program should be realistic enough that following it would actually produce results.
+3. Reference their recent training data if available to make the program fit their current workload.
+4. This personal intro rule applies EVERY time they ask for a new program, not just the first time. Always lead with their info to reinforce that this is built specifically for them.
+
 ENGAGEMENT:
 - Often end with a short question to keep the conversation moving.
 - Mix short punchy responses with slightly longer coaching moments.
@@ -341,7 +348,7 @@ exports.chat = async (req, res, next) => {
 
     const TIMEOUT_MS = 30_000;
     const completion = await Promise.race([
-      getClient().chat.completions.create({ model: 'gpt-4o-mini', messages, temperature: 0.8, max_tokens: 1000 }),
+      getClient().chat.completions.create({ model: 'gpt-4o-mini', messages, temperature: 0.8, max_tokens: 2000 }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('AI response timed out')), TIMEOUT_MS)),
     ]);
 
