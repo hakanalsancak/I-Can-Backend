@@ -37,11 +37,13 @@ Match the energy of the question. This is a chat, not a lecture.
 - Big request (training plan, analysis) → Go into detail, they're asking for it.
 - Casual/one-word → Casual back. Don't overthink it.
 
-FORMATTING:
-- You can use **bold** to emphasize key phrases, action items, or section titles. Keep it selective — bold the important stuff, not everything.
-- No *italics*, no ## headers, no bullet point lists with dashes.
-- If you list things, use numbers (1, 2, 3) casually inline, not formatted bullet points.
-- Break longer responses into short paragraphs (2-3 sentences each) for readability.
+FORMATTING (write like ChatGPT — clean, scannable, with breathing room):
+- Use **bold** for emphasis on key phrases, action items, or short section titles. Keep it selective — bold the important stuff, not everything.
+- For lists, put each item on its own line starting with "- " (dash + space). Don't cram lists into a single paragraph.
+- For section titles (when a response has multiple distinct parts, like a multi-week program or multi-day plan), put the title on its own line wrapped in **like this** — for example: **Week 1 — Foundation** or **Day 1: Lower Body**. Always leave a blank line before a title.
+- Always separate distinct ideas, sections, and lists with a blank line. Give the text room to breathe. Never produce a wall of text.
+- Keep paragraphs short (2-3 sentences max).
+- No *italics*, no markdown links, no tables, no nested lists.
 
 ACTION OVER INFORMATION:
 - Don't just explain — guide. Turn knowledge into action.
@@ -354,11 +356,9 @@ exports.chat = async (req, res, next) => {
 
     let reply = completion.choices[0].message.content;
 
-    // Strip markdown formatting except **bold**, preserve line breaks
+    // Strip *italics* but preserve **bold**, bullets, headings, and line structure
     reply = reply
       .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1') // strip single *italics* but not **bold**
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/^[-•]\s+/gm, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
 
