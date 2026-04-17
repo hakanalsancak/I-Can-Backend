@@ -35,41 +35,12 @@ CREATE TABLE IF NOT EXISTS daily_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     entry_date DATE NOT NULL,
-    activity_type VARCHAR(20) NOT NULL CHECK (activity_type IN ('training', 'game', 'rest_day', 'other', 'daily_log')),
-    focus_rating SMALLINT CHECK (focus_rating BETWEEN 1 AND 10),
-    effort_rating SMALLINT CHECK (effort_rating BETWEEN 1 AND 10),
-    confidence_rating SMALLINT CHECK (confidence_rating BETWEEN 1 AND 10),
-    performance_score SMALLINT,
-    did_well TEXT,
-    improve_next TEXT,
-    rotating_question_id SMALLINT,
-    rotating_answer TEXT,
     responses JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, entry_date)
 );
 CREATE INDEX IF NOT EXISTS idx_entries_user_date ON daily_entries(user_id, entry_date DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_user_created ON daily_entries(user_id, created_at DESC);
-
--- ROTATING QUESTIONS
-CREATE TABLE IF NOT EXISTS rotating_questions (
-    id SMALLINT PRIMARY KEY,
-    question_text TEXT NOT NULL,
-    answer_type VARCHAR(20) DEFAULT 'slider'
-);
-
-INSERT INTO rotating_questions (id, question_text, answer_type) VALUES
-    (1, 'How focused were you during training today?', 'slider'),
-    (2, 'Did you give maximum effort today?', 'slider'),
-    (3, 'How confident did you feel today?', 'slider'),
-    (4, 'How well did you handle mistakes today?', 'slider'),
-    (5, 'How disciplined were you today?', 'slider'),
-    (6, 'How was your energy level today?', 'slider'),
-    (7, 'Did you follow your training plan today?', 'slider'),
-    (8, 'What did you learn today?', 'text'),
-    (9, 'How prepared did you feel today?', 'slider'),
-    (10, 'How satisfied are you with today''s performance?', 'slider')
-ON CONFLICT (id) DO NOTHING;
 
 -- FRIENDSHIPS
 CREATE TABLE IF NOT EXISTS friendships (

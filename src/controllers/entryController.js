@@ -16,15 +16,6 @@ function formatEntry(e) {
   return {
     id: e.id,
     entryDate: formatDate(e.entry_date),
-    activityType: e.activity_type,
-    focusRating: e.focus_rating,
-    effortRating: e.effort_rating,
-    confidenceRating: e.confidence_rating,
-    performanceScore: e.performance_score,
-    didWell: e.did_well,
-    improveNext: e.improve_next,
-    rotatingQuestionId: e.rotating_question_id,
-    rotatingAnswer: e.rotating_answer,
     responses: e.responses || null,
     createdAt: e.created_at,
   };
@@ -32,19 +23,10 @@ function formatEntry(e) {
 
 exports.submitEntry = async (req, res, next) => {
   // Validate BEFORE acquiring a DB client to avoid leaking open transactions
-  const {
-    entryDate, activityType, focusRating, effortRating,
-    confidenceRating, didWell, improveNext,
-    rotatingQuestionId, rotatingAnswer, responses,
-  } = req.body;
+  const { entryDate, responses } = req.body;
 
-  if (!entryDate || !activityType) {
-    return res.status(400).json({ error: 'Entry date and activity type are required' });
-  }
-
-  const VALID_ACTIVITY_TYPES = ['training', 'game', 'rest_day', 'other', 'daily_log'];
-  if (!VALID_ACTIVITY_TYPES.includes(activityType)) {
-    return res.status(400).json({ error: `Activity type must be one of: ${VALID_ACTIVITY_TYPES.join(', ')}` });
+  if (!entryDate) {
+    return res.status(400).json({ error: 'Entry date is required' });
   }
 
   const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -52,30 +34,6 @@ exports.submitEntry = async (req, res, next) => {
     return res.status(400).json({ error: 'entryDate must be in YYYY-MM-DD format' });
   }
 
-  // Ratings are required for legacy activity types; daily_log stores all data in `responses`
-  const isDailyLog = activityType === 'daily_log';
-  let focus = null, effort = null, confidence = null, performanceScore = null;
-  if (!isDailyLog) {
-    focus = Number(focusRating);
-    effort = Number(effortRating);
-    confidence = Number(confidenceRating);
-    for (const [label, n] of [['focusRating', focus], ['effortRating', effort], ['confidenceRating', confidence]]) {
-      if (!Number.isFinite(n) || n < 1 || n > 10) {
-        return res.status(400).json({ error: `${label} must be a number between 1 and 10` });
-      }
-    }
-    performanceScore = Math.round(((focus + effort + confidence) / 3) * 10);
-  }
-
-  // Validate text field lengths
-  const MAX_TEXT = 2000;
-  for (const [label, val] of [['didWell', didWell], ['improveNext', improveNext], ['rotatingAnswer', rotatingAnswer]]) {
-    if (val && (typeof val !== 'string' || val.length > MAX_TEXT)) {
-      return res.status(400).json({ error: `${label} must be a string of ${MAX_TEXT} characters or less` });
-    }
-  }
-
-  // Validate responses JSON size
   if (responses && JSON.stringify(responses).length > 10000) {
     return res.status(400).json({ error: 'responses payload is too large' });
   }
@@ -85,27 +43,13 @@ exports.submitEntry = async (req, res, next) => {
     await client.query('BEGIN');
 
     const entryResult = await client.query(
-      `INSERT INTO daily_entries
-       (user_id, entry_date, activity_type, focus_rating, effort_rating,
-        confidence_rating, performance_score, did_well, improve_next,
-        rotating_question_id, rotating_answer, responses)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO daily_entries (user_id, entry_date, responses)
+       VALUES ($1, $2, $3)
        ON CONFLICT (user_id, entry_date) DO UPDATE SET
-         activity_type = EXCLUDED.activity_type,
-         focus_rating = EXCLUDED.focus_rating,
-         effort_rating = EXCLUDED.effort_rating,
-         confidence_rating = EXCLUDED.confidence_rating,
-         performance_score = EXCLUDED.performance_score,
-         did_well = EXCLUDED.did_well,
-         improve_next = EXCLUDED.improve_next,
-         rotating_question_id = EXCLUDED.rotating_question_id,
-         rotating_answer = EXCLUDED.rotating_answer,
          responses = EXCLUDED.responses
        RETURNING *`,
       [
-        req.userId, entryDate, activityType, focus, effort,
-        confidence, performanceScore, didWell || null, improveNext || null,
-        rotatingQuestionId || null, rotatingAnswer || null,
+        req.userId, entryDate,
         responses ? JSON.stringify(responses) : null,
       ]
     );
@@ -277,7 +221,7 @@ exports.getAnalytics = async (req, res, next) => {
 
     // Get entries in range
     const result = await query(
-      `SELECT id, entry_date, activity_type, responses, performance_score, focus_rating, effort_rating, confidence_rating
+      `SELECT id, entry_date, responses
        FROM daily_entries WHERE user_id = $1 AND entry_date >= $2 AND entry_date <= $3
        ORDER BY entry_date ASC`,
       [req.userId, startDate, endDate]
@@ -322,8 +266,13 @@ exports.getAnalytics = async (req, res, next) => {
       const dateStr = formatDate(e.entry_date);
       totalDays++;
 
-      if (e.activity_type === 'daily_log' && e.responses) {
-        const r = typeof e.responses === 'string' ? JSON.parse(e.responses) : e.responses;
+      const parsed = e.responses
+        ? (typeof e.responses === 'string' ? JSON.parse(e.responses) : e.responses)
+        : null;
+      const isV2 = parsed && (parsed.version === 2 || Array.isArray(parsed.completedSections));
+
+      if (isV2) {
+        const r = parsed;
         const sections = r.completedSections || [];
         completionSum += sections.length;
 
@@ -570,10 +519,7 @@ exports.generateInsight = async (req, res, next) => {
     }
 
     const {
-      activityType, trainingAreas, skillImproved, hardestDrill, commonMistake, tomorrowFocus,
-      gameStats, bestMoment, biggestMistake, improveNextGame,
-      recoveryActivities, sportStudy, restTomorrowFocus,
-      reflectionPositive, reflectionImprove, proudMoment,
+      activityType, proudMoment,
       trainingSessions, sessionScore,
       nutrition,
     } = req.body;
@@ -582,47 +528,15 @@ exports.generateInsight = async (req, res, next) => {
       return res.status(400).json({ error: 'Activity type is required' });
     }
 
-    const VALID_INSIGHT_TYPES = ['Training', 'Game', 'Rest Day', 'Other', 'Daily Log', 'Nutrition Log'];
+    const VALID_INSIGHT_TYPES = ['Daily Log', 'Nutrition Log'];
     if (!VALID_INSIGHT_TYPES.includes(activityType)) {
       return res.status(400).json({ error: `Activity type must be one of: ${VALID_INSIGHT_TYPES.join(', ')}` });
     }
 
     // Validate string fields
     const MAX_FIELD = 500;
-    const stringFields = { skillImproved, hardestDrill, commonMistake, tomorrowFocus, bestMoment, biggestMistake, improveNextGame, sportStudy, restTomorrowFocus, reflectionPositive, reflectionImprove, proudMoment };
-    for (const [key, val] of Object.entries(stringFields)) {
-      if (val != null && (typeof val !== 'string' || val.length > MAX_FIELD)) {
-        return res.status(400).json({ error: `${key} must be a string of ${MAX_FIELD} characters or less` });
-      }
-    }
-
-    // Validate array fields
-    const arrayFields = { trainingAreas, recoveryActivities };
-    for (const [key, val] of Object.entries(arrayFields)) {
-      if (val != null) {
-        if (!Array.isArray(val) || val.length > 10) {
-          return res.status(400).json({ error: `${key} must be an array with at most 10 items` });
-        }
-        if (val.some(item => typeof item !== 'string' || item.length > 100)) {
-          return res.status(400).json({ error: `Each item in ${key} must be a string of 100 characters or less` });
-        }
-      }
-    }
-
-    // Validate gameStats
-    if (gameStats != null) {
-      if (typeof gameStats !== 'object' || Array.isArray(gameStats)) {
-        return res.status(400).json({ error: 'gameStats must be an object' });
-      }
-      const keys = Object.keys(gameStats);
-      if (keys.length > 20) {
-        return res.status(400).json({ error: 'gameStats must have at most 20 keys' });
-      }
-      for (const v of Object.values(gameStats)) {
-        if (typeof v !== 'number' || !Number.isFinite(v)) {
-          return res.status(400).json({ error: 'gameStats values must be finite numbers' });
-        }
-      }
+    if (proudMoment != null && (typeof proudMoment !== 'string' || proudMoment.length > MAX_FIELD)) {
+      return res.status(400).json({ error: `proudMoment must be a string of ${MAX_FIELD} characters or less` });
     }
 
     // Validate trainingSessions (V2 training log)
@@ -707,29 +621,6 @@ exports.generateInsight = async (req, res, next) => {
       if (sessionScore) logSummary += `Overall session score: ${sessionScore}/100\n`;
     }
 
-    // V1 Training (legacy)
-    if (activityType === 'Training') {
-      if (trainingAreas && trainingAreas.length) logSummary += `Worked on: ${trainingAreas.join(', ')}\n`;
-      if (skillImproved) logSummary += `Skill that improved most: ${skillImproved}\n`;
-      if (hardestDrill) logSummary += `Hardest drill: ${hardestDrill}\n`;
-      if (commonMistake) logSummary += `Most common mistake: ${commonMistake}\n`;
-      if (tomorrowFocus) logSummary += `Tomorrow's focus: ${tomorrowFocus}\n`;
-    } else if (activityType === 'Game') {
-      if (gameStats && Object.keys(gameStats).length > 0) {
-        const statLines = Object.entries(gameStats).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}`).join(', ');
-        if (statLines) logSummary += `Stats: ${statLines}\n`;
-      }
-      if (bestMoment) logSummary += `Best moment: ${bestMoment}\n`;
-      if (biggestMistake) logSummary += `Biggest mistake: ${biggestMistake}\n`;
-      if (improveNextGame) logSummary += `Improve next game: ${improveNextGame}\n`;
-    } else if (activityType === 'Rest Day') {
-      if (recoveryActivities && recoveryActivities.length) logSummary += `Recovery: ${recoveryActivities.join(', ')}\n`;
-      if (sportStudy) logSummary += `Sport study: ${sportStudy}\n`;
-      if (restTomorrowFocus) logSummary += `Tomorrow's focus: ${restTomorrowFocus}\n`;
-    }
-
-    if (reflectionPositive) logSummary += `What went well: ${reflectionPositive}\n`;
-    if (reflectionImprove) logSummary += `What to improve: ${reflectionImprove}\n`;
     if (proudMoment) logSummary += `Proudest moment: ${proudMoment}\n`;
 
     if (nutrition && typeof nutrition === 'object') {

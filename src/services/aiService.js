@@ -153,16 +153,16 @@ function buildUserPrompt(entries, sport, reportType) {
   const periodLabels = { weekly: 'week', monthly: 'month', yearly: 'year' };
   const periodLabel = periodLabels[reportType] || 'period';
   const totalDays = entries.length;
-  const trainingDays = entries.filter(e => e.activity_type === 'training').length;
-  const gameDays = entries.filter(e => e.activity_type === 'game').length;
-  const restDays = entries.filter(e => e.activity_type === 'rest_day').length;
-  const dailyLogDays = entries.filter(e => e.activity_type === 'daily_log').length;
+  const isV2Entry = (e) => {
+    const r = e.responses;
+    return r && (r.version === 2 || Array.isArray(r.completedSections));
+  };
+  const dailyLogDays = entries.filter(isV2Entry).length;
+  const legacyDays = totalDays - dailyLogDays;
 
   let overviewParts = [];
   if (dailyLogDays > 0) overviewParts.push(`${dailyLogDays} daily logs`);
-  if (trainingDays > 0) overviewParts.push(`${trainingDays} training`);
-  if (gameDays > 0) overviewParts.push(`${gameDays} games`);
-  if (restDays > 0) overviewParts.push(`${restDays} rest days`);
+  if (legacyDays > 0) overviewParts.push(`${legacyDays} legacy entries`);
 
   let prompt = `ATHLETE'S ${periodLabel.toUpperCase()} DATA — ${sport.toUpperCase()} PLAYER
 ${'='.repeat(50)}
@@ -183,9 +183,9 @@ ${'='.repeat(50)}
     const r = e.responses || {};
 
     prompt += `\n--- ${dayName}, ${date} ---\n`;
-    prompt += `Activity: ${e.activity_type.replace('_', ' ').toUpperCase()}\n`;
 
-    if (e.activity_type === 'daily_log' && r.version === 2) {
+    const entryIsV2 = r && (r.version === 2 || Array.isArray(r.completedSections));
+    if (entryIsV2) {
       // V2 Daily Log — modular sections
       const sections = r.completedSections || [];
       prompt += `Sections completed: ${sections.join(', ') || 'none'}\n`;
@@ -234,18 +234,15 @@ ${'='.repeat(50)}
         }
         prompt += `${sleepLine}\n`;
       }
-    } else if (e.activity_type === 'training') {
-      if (r.workedOn && r.workedOn.length > 0) {
-        prompt += `Worked on: ${r.workedOn.join(', ')}\n`;
-      }
+    } else {
+      // Legacy entry — any of these fields may be present
+      if (r.workedOn && r.workedOn.length > 0) prompt += `Worked on: ${r.workedOn.join(', ')}\n`;
       if (r.skillImproved) prompt += `Skill that improved most: "${r.skillImproved}"\n`;
       if (r.hardestDrill) prompt += `Hardest drill: "${r.hardestDrill}"\n`;
       if (r.commonMistake) prompt += `Most common mistake: "${r.commonMistake}"\n`;
       if (r.tomorrowFocus) prompt += `Tomorrow's focus: "${r.tomorrowFocus}"\n`;
-      // Legacy support
       if (r.focusLabel) prompt += `Focus: ${r.focusLabel}\n`;
       if (r.effortLabel) prompt += `Effort: ${r.effortLabel}\n`;
-    } else if (e.activity_type === 'game') {
       if (r.gameStats && Object.keys(r.gameStats).length > 0) {
         const statLines = Object.entries(r.gameStats)
           .filter(([, v]) => v > 0)
@@ -256,29 +253,18 @@ ${'='.repeat(50)}
       if (r.bestMoment) prompt += `Best moment: "${r.bestMoment}"\n`;
       if (r.biggestMistake) prompt += `Biggest mistake: "${r.biggestMistake}"\n`;
       if (r.improveNextGame) prompt += `Improve next game: "${r.improveNextGame}"\n`;
-      // Legacy support
-      if (r.strongestAreas && r.strongestAreas.length > 0) {
-        prompt += `Strongest areas: ${r.strongestAreas.join(', ')}\n`;
-      }
-    } else if (e.activity_type === 'rest_day') {
-      if (r.recoveryActivities && r.recoveryActivities.length > 0) {
-        prompt += `Recovery activities: ${r.recoveryActivities.join(', ')}\n`;
-      } else if (r.restActivities && r.restActivities.length > 0) {
-        prompt += `Recovery activities: ${r.restActivities.join(', ')}\n`;
-      }
+      if (r.strongestAreas && r.strongestAreas.length > 0) prompt += `Strongest areas: ${r.strongestAreas.join(', ')}\n`;
+      if (r.recoveryActivities && r.recoveryActivities.length > 0) prompt += `Recovery activities: ${r.recoveryActivities.join(', ')}\n`;
+      else if (r.restActivities && r.restActivities.length > 0) prompt += `Recovery activities: ${r.restActivities.join(', ')}\n`;
       if (r.sportStudy) prompt += `Sport study: ${r.sportStudy}\n`;
       if (r.restTomorrowFocus) prompt += `Tomorrow's focus: "${r.restTomorrowFocus}"\n`;
-      // Legacy support
       if (r.recoveryQuality) prompt += `Recovery quality: ${r.recoveryQuality}\n`;
       if (r.discipline) prompt += `Discipline: ${r.discipline}\n`;
     }
 
-    // Universal reflections (new format)
+    // Universal reflections
     if (r.didWell) prompt += `What went well: "${r.didWell}"\n`;
-    else if (e.did_well) prompt += `What went well: "${e.did_well}"\n`;
-
     if (r.improveNext) prompt += `What to improve: "${r.improveNext}"\n`;
-    else if (e.improve_next) prompt += `What to improve: "${e.improve_next}"\n`;
 
     if (r.proudMoment) prompt += `Proudest moment: "${r.proudMoment}"\n`;
 
