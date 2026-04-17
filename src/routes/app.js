@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const MIN_VERSION = process.env.MIN_APP_VERSION || '1.2.3';
+const MAINTENANCE_MODE = process.env.MAINTENANCE_MODE === 'true';
 
 function compareVersions(a, b) {
   const partsA = a.split('.').map(Number);
@@ -29,6 +30,7 @@ router.get('/version', (req, res) => {
   res.json({
     minVersion: MIN_VERSION,
     forceUpdate,
+    maintenance: MAINTENANCE_MODE,
   });
 });
 
