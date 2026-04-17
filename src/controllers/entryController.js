@@ -310,6 +310,8 @@ exports.getAnalytics = async (req, res, next) => {
                 exercises: s.exercises ?? null,
                 cardioType: s.cardioType ?? null,
                 distance: s.distance ?? null,
+                distanceUnit: s.distanceUnit ?? null,
+                steps: s.steps ?? null,
                 pace: s.pace ?? null,
                 cardioEffort: s.cardioEffort ?? null,
                 skillTrained: s.skillTrained ?? null,
@@ -592,7 +594,8 @@ exports.generateInsight = async (req, res, next) => {
             break;
           case 'cardio':
             if (s.cardioType) logSummary += `  Type: ${s.cardioType}\n`;
-            if (s.distance) logSummary += `  Distance: ${s.distance}km\n`;
+            if (s.distance) logSummary += `  Distance: ${s.distance}${s.distanceUnit || 'km'}\n`;
+            if (s.steps) logSummary += `  Steps: ${s.steps}\n`;
             if (s.duration) logSummary += `  Time: ${s.duration}min\n`;
             if (s.pace) logSummary += `  Pace: ${s.pace}\n`;
             if (s.cardioEffort) logSummary += `  Effort: ${s.cardioEffort}\n`;
