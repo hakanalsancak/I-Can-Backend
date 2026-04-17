@@ -52,14 +52,19 @@ exports.submitEntry = async (req, res, next) => {
     return res.status(400).json({ error: 'entryDate must be in YYYY-MM-DD format' });
   }
 
-  // Validate and coerce rating fields to numbers
-  const focus = Number(focusRating);
-  const effort = Number(effortRating);
-  const confidence = Number(confidenceRating);
-  for (const [label, n] of [['focusRating', focus], ['effortRating', effort], ['confidenceRating', confidence]]) {
-    if (!Number.isFinite(n) || n < 1 || n > 10) {
-      return res.status(400).json({ error: `${label} must be a number between 1 and 10` });
+  // Ratings are required for legacy activity types; daily_log stores all data in `responses`
+  const isDailyLog = activityType === 'daily_log';
+  let focus = null, effort = null, confidence = null, performanceScore = null;
+  if (!isDailyLog) {
+    focus = Number(focusRating);
+    effort = Number(effortRating);
+    confidence = Number(confidenceRating);
+    for (const [label, n] of [['focusRating', focus], ['effortRating', effort], ['confidenceRating', confidence]]) {
+      if (!Number.isFinite(n) || n < 1 || n > 10) {
+        return res.status(400).json({ error: `${label} must be a number between 1 and 10` });
+      }
     }
+    performanceScore = Math.round(((focus + effort + confidence) / 3) * 10);
   }
 
   // Validate text field lengths
@@ -74,8 +79,6 @@ exports.submitEntry = async (req, res, next) => {
   if (responses && JSON.stringify(responses).length > 10000) {
     return res.status(400).json({ error: 'responses payload is too large' });
   }
-
-  const performanceScore = Math.round(((focus + effort + confidence) / 3) * 10);
 
   const client = await getClient();
   try {
