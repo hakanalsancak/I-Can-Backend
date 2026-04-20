@@ -72,9 +72,14 @@ async function generateReportForUser(user, reportType, periodStart, periodEnd, m
 
   const newReport = await generateReport(user.id, reportType, periodStart, periodEnd);
 
+  // Dedup: remove any other report for the SAME period (in case of retries).
+  // Older reports for different periods are preserved so the client can show them
+  // under "Saved Reports".
   await query(
-    'DELETE FROM ai_reports WHERE user_id = $1 AND report_type = $2 AND id != $3',
-    [user.id, reportType, newReport.id]
+    `DELETE FROM ai_reports
+       WHERE user_id = $1 AND report_type = $2
+         AND period_start = $3 AND period_end = $4 AND id != $5`,
+    [user.id, reportType, periodStart, periodEnd, newReport.id]
   );
 
   await sendReportNotification(user.id, reportType, `${periodStart} – ${periodEnd}`);
@@ -122,7 +127,10 @@ async function processUserBatch(users, reportType, periodStart, periodEnd, minEn
   return generated;
 }
 
-// Compute the Mon-Sun week bounds for a given IANA timezone
+// Compute the PREVIOUS Mon-Sun week bounds for a given IANA timezone.
+// Used by the weekly cron which fires at Monday local midnight — the week we want
+// to report on is the one that just ended (Mon..Sun ending yesterday), not the
+// new week starting today.
 function getWeekBoundsForTimezone(tz) {
   const parts = {};
   new Intl.DateTimeFormat('en-CA', {
@@ -134,8 +142,8 @@ function getWeekBoundsForTimezone(tz) {
   const local = new Date(Date.UTC(year, month - 1, day));
   const dow = local.getUTCDay(); // 0=Sun
   const diffToMonday = dow === 0 ? 6 : dow - 1;
-  const monday = new Date(Date.UTC(year, month - 1, day - diffToMonday));
-  const sunday = new Date(Date.UTC(year, month - 1, day - diffToMonday + 6));
+  const monday = new Date(Date.UTC(year, month - 1, day - diffToMonday - 7));
+  const sunday = new Date(Date.UTC(year, month - 1, day - diffToMonday - 1));
   return {
     start: monday.toISOString().split('T')[0],
     end: sunday.toISOString().split('T')[0],
