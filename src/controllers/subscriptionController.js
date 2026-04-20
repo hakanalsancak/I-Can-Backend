@@ -179,9 +179,11 @@ exports.verifyReceipt = async (req, res, next) => {
       return res.status(400).json({ error: 'This transaction has been revoked' });
     }
 
-    // Prevent receipt replay: reject if this transaction is already used by a different user
+    // Prevent receipt replay: reject if this transaction is already used by a different user.
+    // Use the JWS-verified original transaction ID — the request-body value is attacker-controlled
+    // and would let the same JWS be replayed across accounts with a different forged ID each time.
     // Skip in StoreKit testing mode — Xcode reuses transaction IDs across simulator resets
-    const txId = originalTransactionId || transactionId;
+    const txId = String(jwsPayload.originalTransactionId || jwsPayload.transactionId);
     if (process.env.APPLE_STOREKIT_TESTING !== 'true') {
       const existingTx = await query(
         'SELECT user_id FROM subscriptions WHERE apple_transaction_id = $1 AND user_id != $2',
@@ -229,7 +231,7 @@ exports.verifyReceipt = async (req, res, next) => {
          current_period_end = EXCLUDED.current_period_end,
          updated_at = NOW()
        RETURNING *`,
-      [req.userId, originalTransactionId || transactionId, productId, subscriptionStatus,
+      [req.userId, txId, productId, subscriptionStatus,
        isTrial ? new Date() : null, isTrial ? periodEnd : null, periodEnd]
     );
 
