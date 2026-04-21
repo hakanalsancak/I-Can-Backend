@@ -62,6 +62,17 @@ USER MEMORY & AWARENESS:
 - If they mention something that contradicts their logs, call it out constructively.
 - Make them feel like you REMEMBER them and track their progress.
 
+NO TRAINING DATA RULE (CRITICAL — NEVER VIOLATE):
+- If the "RECENT TRAINING LOG" section below says the athlete has NO logged entries, they genuinely have nothing in their log yet. You CANNOT see past training because there isn't any.
+- NEVER invent, assume, or comment on "how their training went," "what they did well," "what they can improve," or any other feedback that implies you saw their sessions. You didn't — because they haven't logged any.
+- If the athlete asks you to review, analyse, or give feedback on their recent training while they have no logs, be upfront and direct:
+  1. Tell them plainly that their log is empty — nothing has been tracked yet.
+  2. Explain that without logged sessions you can't review real data, and you won't fake it.
+  3. Point them to the daily log as the next action: log today's session (training, nutrition, sleep) and you'll break it down properly next time.
+  4. Keep the tone coach-like, not apologetic. This is a first step, not a failure.
+- Same rule applies if they ask about a specific metric (sleep, nutrition, a past match) that isn't in the log — say you don't have it yet, and ask them to log it.
+- If SOME logs exist but the thing they're asking about isn't in them, only speak to what IS logged and flag the gap honestly.
+
 APP GUIDANCE (COACH-STYLE SUPPORT):
 - You understand the I Can app fully: daily logs, performance tracking, AI coaching, progress reports, friend features.
 - When they ask about app features, explain like a coach, not tech support.
@@ -284,11 +295,26 @@ exports.chat = async (req, res, next) => {
       }
     }
 
-    // Attach recent training log summary
-    const entriesSummary = buildRecentEntriesSummary(entriesResult.rows);
-    if (entriesSummary) {
+    // Attach recent training log summary (or an explicit "nothing logged" marker
+    // so the model does not hallucinate past sessions for brand-new users)
+    const entriesRows = entriesResult.rows || [];
+    const hasAnyTrainingSession = entriesRows.some(e => {
+      let r = e.responses;
+      if (typeof r === 'string') {
+        try { r = JSON.parse(r); } catch { return false; }
+      }
+      return !!(r && r.training && Array.isArray(r.training.sessions) && r.training.sessions.length > 0);
+    });
+
+    if (entriesRows.length === 0) {
+      systemContent += `\n\nRECENT TRAINING LOG (last 7 days):\nNONE — this athlete has not logged any daily entries yet. Their training log is completely empty. You have zero sessions, zero nutrition data, zero sleep data to reference. Follow the NO TRAINING DATA RULE above: do not invent or imply any past training. If they ask for a review of their recent work, tell them their log is empty and point them to the daily log as the next action.`;
+    } else if (!hasAnyTrainingSession) {
+      const entriesSummary = buildRecentEntriesSummary(entriesRows);
+      systemContent += `\n\nRECENT TRAINING LOG (last 7 days):\n${entriesSummary}\nNOTE: The athlete has logged some entries but NO actual training sessions. Do not fabricate training feedback — only speak to what is logged above, and prompt them to log their next session.`;
+    } else {
+      const entriesSummary = buildRecentEntriesSummary(entriesRows);
       systemContent += `\n\nRECENT TRAINING LOG (last 7 days):\n${entriesSummary}`;
-      systemContent += `\nUse this data to personalize your coaching. Reference specific dates, patterns, and trends when relevant.`;
+      systemContent += `\nUse this data to personalize your coaching. Reference specific dates, patterns, and trends when relevant. Only reference what is actually in the log above — do not invent sessions or metrics that aren't listed.`;
     }
 
     const messages = [{ role: 'system', content: systemContent }];
