@@ -73,6 +73,11 @@ NO TRAINING DATA RULE (CRITICAL — NEVER VIOLATE):
 - Same rule applies if they ask about a specific metric (sleep, nutrition, a past match) that isn't in the log — say you don't have it yet, and ask them to log it.
 - If SOME logs exist but the thing they're asking about isn't in them, only speak to what IS logged and flag the gap honestly.
 
+LOG WINDOW RULE (IMPORTANT):
+- The "RECENT TRAINING LOG" section only contains the 7 most recent entries in detail. The athlete may have MANY more entries further back.
+- For historical questions ("when did I start?", "how long have I been logging?", "earliest entry?", "total entries?"), use the "LOG STATS" section — it gives you the true first/last entry dates and total count across their entire history.
+- NEVER claim the earliest date in the detailed log is the earliest entry overall. If they ask about an older entry you don't have the detail for, be honest: "I've got the last 7 entries in front of me — you've actually been logging since [first_entry_date from LOG STATS]. I don't have the detail on [specific older date], but we can pull it up in your Journal."
+
 APP GUIDANCE (COACH-STYLE SUPPORT):
 - You understand the I Can app fully: daily logs, performance tracking, AI coaching, progress reports, friend features.
 - When they ask about app features, explain like a coach, not tech support.
@@ -262,8 +267,10 @@ exports.chat = async (req, res, next) => {
       }
     }
 
-    // Fetch full user profile + recent daily entries in parallel
-    const [userResult, entriesResult] = await Promise.all([
+    // Fetch full user profile + recent daily entries + aggregate log stats in parallel.
+    // The stats query is what lets the coach answer "when did I start?" / "earliest entry?"
+    // questions accurately — the detailed entriesResult is capped at 7 rows for token budget.
+    const [userResult, entriesResult, statsResult] = await Promise.all([
       query(
         'SELECT sport, full_name, mantra, age, gender, team, competition_level, position, primary_goal, height, weight FROM users WHERE id = $1',
         [req.userId]
@@ -272,6 +279,13 @@ exports.chat = async (req, res, next) => {
         `SELECT entry_date, responses
          FROM daily_entries WHERE user_id = $1
          ORDER BY entry_date DESC LIMIT 7`,
+        [req.userId]
+      ),
+      query(
+        `SELECT COUNT(*)::int AS total_entries,
+                TO_CHAR(MIN(entry_date), 'YYYY-MM-DD') AS first_entry_date,
+                TO_CHAR(MAX(entry_date), 'YYYY-MM-DD') AS last_entry_date
+         FROM daily_entries WHERE user_id = $1`,
         [req.userId]
       ),
     ]);
@@ -306,15 +320,22 @@ exports.chat = async (req, res, next) => {
       return !!(r && r.training && Array.isArray(r.training.sessions) && r.training.sessions.length > 0);
     });
 
+    // Aggregate stats across the athlete's full log history — the detailed log
+    // above is capped at 7 entries, but these stats cover everything.
+    const stats = statsResult.rows[0];
+    if (stats && stats.total_entries > 0) {
+      systemContent += `\n\nLOG STATS (full history):\n- Total entries: ${stats.total_entries}\n- First entry: ${stats.first_entry_date}\n- Most recent entry: ${stats.last_entry_date}`;
+    }
+
     if (entriesRows.length === 0) {
-      systemContent += `\n\nRECENT TRAINING LOG (last 7 days):\nNONE — this athlete has not logged any daily entries yet. Their training log is completely empty. You have zero sessions, zero nutrition data, zero sleep data to reference. Follow the NO TRAINING DATA RULE above: do not invent or imply any past training. If they ask for a review of their recent work, tell them their log is empty and point them to the daily log as the next action.`;
+      systemContent += `\n\nRECENT TRAINING LOG (last 7 entries):\nNONE — this athlete has not logged any daily entries yet. Their training log is completely empty. You have zero sessions, zero nutrition data, zero sleep data to reference. Follow the NO TRAINING DATA RULE above: do not invent or imply any past training. If they ask for a review of their recent work, tell them their log is empty and point them to the daily log as the next action.`;
     } else if (!hasAnyTrainingSession) {
       const entriesSummary = buildRecentEntriesSummary(entriesRows);
-      systemContent += `\n\nRECENT TRAINING LOG (last 7 days):\n${entriesSummary}\nNOTE: The athlete has logged some entries but NO actual training sessions. Do not fabricate training feedback — only speak to what is logged above, and prompt them to log their next session.`;
+      systemContent += `\n\nRECENT TRAINING LOG (last 7 entries):\n${entriesSummary}\nNOTE: The athlete has logged some entries but NO actual training sessions. Do not fabricate training feedback — only speak to what is logged above, and prompt them to log their next session.`;
     } else {
       const entriesSummary = buildRecentEntriesSummary(entriesRows);
-      systemContent += `\n\nRECENT TRAINING LOG (last 7 days):\n${entriesSummary}`;
-      systemContent += `\nUse this data to personalize your coaching. Reference specific dates, patterns, and trends when relevant. Only reference what is actually in the log above — do not invent sessions or metrics that aren't listed.`;
+      systemContent += `\n\nRECENT TRAINING LOG (last 7 entries):\n${entriesSummary}`;
+      systemContent += `\nUse this data to personalize your coaching. Reference specific dates, patterns, and trends when relevant. Only reference what is actually in the log above — do not invent sessions or metrics that aren't listed. For questions about older entries not in this window, defer to LOG STATS.`;
     }
 
     const messages = [{ role: 'system', content: systemContent }];
