@@ -232,7 +232,7 @@ exports.verifyReceipt = async (req, res, next) => {
          updated_at = NOW()
        RETURNING *`,
       [req.userId, txId, productId, subscriptionStatus,
-       isTrial ? new Date() : null, isTrial ? periodEnd : null, periodEnd]
+       isTrial ? new Date(jwsPayload.purchaseDate) : null, isTrial ? periodEnd : null, periodEnd]
     );
 
     const sub = result.rows[0];
