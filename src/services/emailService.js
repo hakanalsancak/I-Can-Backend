@@ -59,4 +59,45 @@ async function sendFeedbackEmail({ type, message, email, userId, username, accou
   });
 }
 
-module.exports = { sendFeedbackEmail };
+const EVENT_LABELS = {
+  new_subscription: 'New Subscription',
+  resubscribe: 'Resubscription',
+  renewed: 'Subscription Renewed',
+  refunded: 'Subscription Refunded',
+  revoked: 'Subscription Revoked',
+};
+
+async function sendSubscriptionEmail({ event, productId, userId, username, accountEmail, periodEnd, transactionId }) {
+  const to = process.env.SUBSCRIPTION_EMAIL_TO || process.env.FEEDBACK_EMAIL_TO;
+  const t = getTransporter();
+  if (!to || !t) return;
+
+  const label = EVENT_LABELS[event] || event;
+  const subject = `[I Can] ${label} — ${productId || 'unknown product'}`;
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;color:#222;">
+      <h2 style="margin:0 0 12px 0;">${escapeHtml(label)}</h2>
+      <table style="border-collapse:collapse;margin-bottom:16px;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Event</td><td>${escapeHtml(event)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Product</td><td>${escapeHtml(productId || '—')}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">User ID</td><td>${escapeHtml(userId)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Username</td><td>${escapeHtml(username || '—')}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Account Email</td><td>${escapeHtml(accountEmail || '—')}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Transaction</td><td>${escapeHtml(transactionId || '—')}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Period Ends</td><td>${escapeHtml(periodEnd || '—')}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Time</td><td>${new Date().toISOString()}</td></tr>
+      </table>
+    </div>
+  `;
+  const text = `${label}\n\nEvent: ${event}\nProduct: ${productId || '—'}\nUser: ${userId} (${username || '—'})\nAccount: ${accountEmail || '—'}\nTransaction: ${transactionId || '—'}\nPeriod ends: ${periodEnd || '—'}\nTime: ${new Date().toISOString()}`;
+
+  await t.sendMail({
+    from: process.env.SMTP_FROM || `I Can Subscriptions <${process.env.SMTP_USER}>`,
+    to,
+    subject,
+    text,
+    html,
+  });
+}
+
+module.exports = { sendFeedbackEmail, sendSubscriptionEmail };

@@ -1,5 +1,17 @@
 const { query } = require('../config/database');
 const crypto = require('crypto');
+const { sendSubscriptionEmail } = require('../services/emailService');
+
+function notifySubscriptionEvent(payload) {
+  // Fire-and-forget — must never throw or block the caller.
+  (async () => {
+    try {
+      await sendSubscriptionEmail(payload);
+    } catch (err) {
+      console.error('Subscription email send failed:', err.message);
+    }
+  })();
+}
 
 // Validates Apple StoreKit 2 JWS signed transaction.
 // Returns the decoded payload if valid, throws on failure.
@@ -217,6 +229,15 @@ exports.verifyReceipt = async (req, res, next) => {
     const isTrial = jwsPayload.offerType === 1;
     const subscriptionStatus = isTrial ? 'trial' : 'active';
 
+    // Look up prior state to decide whether to send a "new subscription" email.
+    // Without this, restore-purchases or app reinstall would re-fire the email.
+    const priorSub = await query(
+      'SELECT apple_transaction_id, status FROM subscriptions WHERE user_id = $1',
+      [req.userId]
+    );
+    const priorTxId = priorSub.rows[0]?.apple_transaction_id;
+    const priorStatus = priorSub.rows[0]?.status;
+
     const result = await query(
       `INSERT INTO subscriptions (user_id, apple_transaction_id, product_id, status,
        trial_start, trial_end, current_period_start, current_period_end)
@@ -234,6 +255,27 @@ exports.verifyReceipt = async (req, res, next) => {
       [req.userId, txId, productId, subscriptionStatus,
        isTrial ? new Date(jwsPayload.purchaseDate) : null, isTrial ? periodEnd : null, periodEnd]
     );
+
+    // Only notify on real subscription state changes (new sub or resubscribe after lapse).
+    // Skip when the same active transaction is being re-verified (e.g. iOS restore).
+    const isNewSubscription = !priorTxId;
+    const isResubscribe = priorTxId && priorTxId !== txId && (priorStatus === 'expired' || priorStatus === 'cancelled');
+    if (isNewSubscription || isResubscribe) {
+      const userInfo = await query(
+        'SELECT username, email FROM users WHERE id = $1',
+        [req.userId]
+      );
+      const u = userInfo.rows[0] || {};
+      notifySubscriptionEvent({
+        event: isNewSubscription ? 'new_subscription' : 'resubscribe',
+        productId,
+        userId: req.userId,
+        username: u.username,
+        accountEmail: u.email,
+        periodEnd: periodEnd.toISOString(),
+        transactionId: txId,
+      });
+    }
 
     const sub = result.rows[0];
     const now = new Date();
@@ -290,7 +332,9 @@ exports.appleWebhook = async (req, res) => {
     const txId = String(transactionInfo.originalTransactionId || transactionInfo.transactionId);
 
     const subResult = await query(
-      'SELECT id FROM subscriptions WHERE apple_transaction_id = $1',
+      `SELECT s.id, s.user_id, s.product_id, u.username, u.email AS account_email
+       FROM subscriptions s LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.apple_transaction_id = $1`,
       [txId]
     );
 
@@ -299,7 +343,19 @@ exports.appleWebhook = async (req, res) => {
       return res.sendStatus(200);
     }
 
-    const subId = subResult.rows[0].id;
+    const subRow = subResult.rows[0];
+    const subId = subRow.id;
+    const notifyEvent = (event, periodEndIso) => {
+      notifySubscriptionEvent({
+        event,
+        productId: subRow.product_id,
+        userId: subRow.user_id,
+        username: subRow.username,
+        accountEmail: subRow.account_email,
+        periodEnd: periodEndIso || null,
+        transactionId: txId,
+      });
+    };
 
     switch (notificationType) {
       case 'DID_RENEW': {
@@ -311,6 +367,7 @@ exports.appleWebhook = async (req, res) => {
              updated_at = NOW() WHERE id = $2`,
             [periodEnd, subId]
           );
+          notifyEvent('renewed', periodEnd.toISOString());
         }
         break;
       }
@@ -330,6 +387,7 @@ exports.appleWebhook = async (req, res) => {
           "UPDATE subscriptions SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
           [subId]
         );
+        notifyEvent(notificationType === 'REFUND' ? 'refunded' : 'revoked', null);
         break;
       }
 
