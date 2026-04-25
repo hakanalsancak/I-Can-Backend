@@ -224,6 +224,35 @@ function buildRecentEntriesSummary(entries) {
 const FREE_DAILY_LIMIT = 15;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+// IANA timezone names: "Region/City", "UTC", "GMT", or fixed-offset like "Etc/GMT+5".
+const TIMEZONE_REGEX = /^[A-Za-z][A-Za-z0-9_+\-]*(?:\/[A-Za-z0-9_+\-]+){0,2}$/;
+
+// Resolve today's date for the coach. Prefers the client-supplied local date
+// (so a UK athlete at 23:30 BST does not get told it is already tomorrow in UTC).
+// Falls back to UTC when the client values are missing or malformed.
+function resolveTodayContext(clientDate, clientTimezone) {
+  const validDate = typeof clientDate === 'string' && DATE_REGEX.test(clientDate);
+  const validTz = typeof clientTimezone === 'string'
+    && clientTimezone.length <= 64
+    && TIMEZONE_REGEX.test(clientTimezone);
+
+  if (validDate) {
+    // Sanity-check the date actually parses to itself (rejects e.g. 2026-02-31)
+    const [y, m, d] = clientDate.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    if (dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d) {
+      const dayName = dt.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+      const tzLabel = validTz ? clientTimezone : 'UTC';
+      return { isoDate: clientDate, dayName, tzLabel };
+    }
+  }
+
+  const now = new Date();
+  const isoDate = now.toISOString().slice(0, 10);
+  const dayName = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  return { isoDate, dayName, tzLabel: 'UTC' };
+}
 
 exports.chat = async (req, res, next) => {
   try {
@@ -252,7 +281,7 @@ exports.chat = async (req, res, next) => {
       remaining = FREE_DAILY_LIMIT - currentCount - 1; // -1 for the current message
     }
 
-    const { message, history, conversationId } = req.body;
+    const { message, history, conversationId, clientDate, clientTimezone } = req.body;
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -266,6 +295,10 @@ exports.chat = async (req, res, next) => {
         return res.status(400).json({ error: 'Invalid conversationId format' });
       }
     }
+
+    // Resolve the athlete's "today" — without this, the model hallucinates the date.
+    // Trust the client date/timezone when it's well-formed, fall back to UTC otherwise.
+    const todayContext = resolveTodayContext(clientDate, clientTimezone);
 
     // Fetch full user profile + recent daily entries + aggregate log stats in parallel.
     // The stats query is what lets the coach answer "when did I start?" / "earliest entry?"
@@ -292,6 +325,7 @@ exports.chat = async (req, res, next) => {
     const user = userResult.rows[0];
 
     let systemContent = SYSTEM_PROMPT;
+    systemContent += `\n\nTODAY'S DATE: ${todayContext.dayName}, ${todayContext.isoDate} (athlete's local time, ${todayContext.tzLabel}). When the athlete asks "what is today" or refers to "today", "yesterday", or "tomorrow", anchor to this date. Do not guess or use any other date.`;
     if (user) {
       const profileParts = [];
       if (user.full_name) profileParts.push(`Name: ${user.full_name}`);
