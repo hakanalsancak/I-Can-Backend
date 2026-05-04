@@ -39,21 +39,26 @@ function getLocalDateParts(tz) {
   };
 }
 
-async function sendReportNotification(userId, reportType, periodLabel) {
+async function sendReportNotification(userId, reportType, reportId, userFirstName) {
   try {
     const tokens = await query('SELECT token FROM device_tokens WHERE user_id = $1', [userId]);
     if (tokens.rows.length === 0) return;
 
-    const typeLabel = reportType.charAt(0).toUpperCase() + reportType.slice(1);
-    const title = `${typeLabel} Report Ready`;
-    const body = `Your ${reportType} performance report is ready. See what your AI coach has to say.`;
+    // Personalized, time-locked-release copy. Matches the new "report card" UX.
+    const namePrefix = userFirstName ? `${userFirstName}, ` : '';
+    const title = reportType === 'weekly'
+      ? `${namePrefix}your week is graded`
+      : `${namePrefix}your month is in`;
+    const body = reportType === 'weekly'
+      ? `Open your weekly report card. Best day, worst day, one move.`
+      : `Your monthly verdict is ready. Trend, consistency, focus.`;
 
     const deviceTokens = tokens.rows.map(t => t.token);
     const { sendPush } = require('../config/apns');
     await sendPush(deviceTokens, {
       title,
       body,
-      data: { type: 'report_ready', reportType },
+      data: { type: 'report_ready', reportType, reportId: reportId || null },
     });
 
     await logNotification(userId, 'report_ready', `Your ${reportType} report is ready`);
@@ -82,7 +87,17 @@ async function generateReportForUser(user, reportType, periodStart, periodEnd, m
     [user.id, reportType, periodStart, periodEnd, newReport.id]
   );
 
-  await sendReportNotification(user.id, reportType, `${periodStart} – ${periodEnd}`);
+  // Look up first name for personalized push copy. Best-effort — push still
+  // sends if this fails.
+  let firstName = null;
+  try {
+    const u = await query('SELECT full_name FROM users WHERE id = $1', [user.id]);
+    if (u.rows[0] && u.rows[0].full_name) {
+      firstName = String(u.rows[0].full_name).trim().split(/\s+/)[0] || null;
+    }
+  } catch (_) { /* ignore */ }
+
+  await sendReportNotification(user.id, reportType, newReport.id, firstName);
   return true;
 }
 
@@ -166,19 +181,6 @@ function getMonthBoundsForTimezone(tz) {
   };
 }
 
-// Compute previous year bounds for a given IANA timezone
-function getYearBoundsForTimezone(tz) {
-  const parts = {};
-  new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric',
-  }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
-  const prevYear = parseInt(parts.year) - 1;
-  return {
-    start: `${prevYear}-01-01`,
-    end: `${prevYear}-12-31`,
-  };
-}
-
 // Generate reports for a list of users, grouping by timezone to compute correct period bounds
 async function generateTimezoneAwareReports(users, reportType, minEntries, boundsFn) {
   // Group users by their period bounds (users in same timezone offset share bounds)
@@ -252,27 +254,6 @@ async function catchUpMissedReports() {
     }
   }
 
-  // Check missed yearly: if we're in the first 3 days of January
-  if (now.getUTCMonth() === 0 && now.getUTCDate() <= 3) {
-    const prevYear = now.getUTCFullYear() - 1;
-    const periodStart = `${prevYear}-01-01`;
-    const periodEnd = `${prevYear}-12-31`;
-
-    const existing = await query(
-      "SELECT 1 FROM ai_reports WHERE report_type = 'yearly' AND period_start = $1 AND period_end = $2 LIMIT 1",
-      [periodStart, periodEnd]
-    );
-    if (existing.rows.length === 0) {
-      console.log(`Catching up missed yearly reports for ${periodStart} – ${periodEnd}`);
-      try {
-        const count = await generateReportsForPeriod('yearly', periodStart, periodEnd, 50);
-        console.log(`Catch-up: generated ${count} yearly reports`);
-      } catch (err) {
-        console.error('Catch-up yearly report error:', err.message);
-      }
-    }
-  }
-
   console.log('Missed report check complete');
 }
 
@@ -298,7 +279,6 @@ function initCronJobs() {
       // Categorize by what day it is locally for each user
       const weeklyUsers = [];
       const monthlyUsers = [];
-      const yearlyUsers = [];
 
       for (const user of midnightUsers) {
         const tz = user.timezone || 'UTC';
@@ -308,8 +288,6 @@ function initCronJobs() {
         if (local.weekday === 'Mon') weeklyUsers.push(user);
         // Monthly: it's the 1st locally
         if (local.day === 1) monthlyUsers.push(user);
-        // Yearly: it's Jan 1 locally
-        if (local.month === 1 && local.day === 1) yearlyUsers.push(user);
       }
 
       if (weeklyUsers.length > 0) {
@@ -322,12 +300,6 @@ function initCronJobs() {
         console.log(`Monthly report: ${monthlyUsers.length} users hitting 1st of month midnight`);
         const count = await generateTimezoneAwareReports(monthlyUsers, 'monthly', 10, getMonthBoundsForTimezone);
         console.log(`Generated ${count} monthly reports`);
-      }
-
-      if (yearlyUsers.length > 0) {
-        console.log(`Yearly report: ${yearlyUsers.length} users hitting Jan 1 midnight`);
-        const count = await generateTimezoneAwareReports(yearlyUsers, 'yearly', 50, getYearBoundsForTimezone);
-        console.log(`Generated ${count} yearly reports`);
       }
     } catch (err) {
       console.error('Report generation cron error:', err.message);

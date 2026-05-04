@@ -2,155 +2,79 @@ const { getClient } = require('../config/openai');
 const { query } = require('../config/database');
 
 function buildSystemPrompt(sport, mantra, reportType) {
-  const periodLabels = { weekly: 'week', monthly: 'month', yearly: 'year' };
+  const periodLabels = { weekly: 'week', monthly: 'month' };
   const periodLabel = periodLabels[reportType] || 'period';
 
-  const depthConfig = {
-    weekly: {
-      summaryLen: '3-4 sentences',
-      strengthCount: '3-4', strengthLen: '2-3 sentences',
-      improvementCount: '2-3', improvementLen: '2-3 sentences',
-      mentalLen: '4-6 sentences',
-      physicalLen: '3-5 sentences',
-      consistencyLen: '3-4 sentences',
-      growthCount: '2-3', growthAnalysisLen: '2-3 sentences', growthRecLen: '1-2 steps',
-      tipsCount: '3-5',
-      closingLen: '3-4 sentences',
-    },
-    monthly: {
-      summaryLen: '5-7 sentences',
-      strengthCount: '4-6', strengthLen: '3-4 sentences',
-      improvementCount: '3-5', improvementLen: '3-4 sentences',
-      mentalLen: '6-10 sentences',
-      physicalLen: '6-8 sentences',
-      consistencyLen: '5-7 sentences',
-      growthCount: '3-5', growthAnalysisLen: '3-5 sentences', growthRecLen: '2-3 steps',
-      tipsCount: '5-7',
-      closingLen: '5-6 sentences',
-    },
-    yearly: {
-      summaryLen: '7-10 sentences',
-      strengthCount: '5-8', strengthLen: '4-5 sentences',
-      improvementCount: '4-6', improvementLen: '4-5 sentences',
-      mentalLen: '10-14 sentences',
-      physicalLen: '8-12 sentences',
-      consistencyLen: '7-10 sentences',
-      growthCount: '4-6', growthAnalysisLen: '4-6 sentences', growthRecLen: '3-4 steps',
-      tipsCount: '6-10',
-      closingLen: '6-8 sentences',
-    },
-  };
+  // Field-length contract for the new "report card" UI. The athlete sees
+  // bullets, a single action, and a short headline — no paragraphs.
+  const limits = reportType === 'monthly'
+    ? { headlineMax: 60, bulletMax: 60, actionMax: 60, bulletCount: 3, dailyCount: 30, weeklyCount: 5 }
+    : { headlineMax: 60, bulletMax: 60, actionMax: 60, bulletCount: 3, dailyCount: 7, weeklyCount: 0 };
 
-  const d = depthConfig[reportType] || depthConfig.weekly;
+  const monthlyExtras = reportType === 'monthly' ? `
+- Generate weeklyScores: an array of up to ${limits.weeklyCount} { weekIndex, score, label } items, one per ISO week in the period. label is short like "W1".
+- Generate pillarTrend: { trainingPct, nutritionPct, sleepPct } each as the percentage delta vs the prior month (positive or negative integer-ish), and matching one-line notes (≤28 chars each) like "Sharper than March." or "Slipped. Fix this first."
+` : `
+- pillarTrend may be omitted (weekly).
+- weeklyScores may be omitted (weekly).
+`;
 
-  let extraMonthlyInstructions = '';
-  if (reportType === 'monthly') {
-    extraMonthlyInstructions = `
-MONTHLY DEPTH REQUIREMENTS:
-- Compare week-over-week trends within the month. Did they start strong and taper off? Build momentum as the month went on?
-- Identify the single best day and single worst day of the month — explain why and what can be learned
-- Look for recurring mistakes across the entire month — if a mistake appeared 3+ times, it's a systemic issue that needs a plan
-- Analyze their training-to-game ratio: are they training enough for the games they play?
-- Assess whether their rest days are strategically placed or random
-- Their monthly report should feel like a thorough coaching session — the athlete should feel like you studied them deeply`;
-  }
+  return `You are an elite ${sport} performance coach. The athlete trusts you. You speak in short, direct, motivating lines — never paragraphs.
 
-  let extraYearlyInstructions = '';
-  if (reportType === 'yearly') {
-    extraYearlyInstructions = `
-YEARLY DEPTH REQUIREMENTS:
-- This report is the most important one the athlete will read. It must feel monumental and worth the wait.
-- Break the year into phases (early months, mid-year, late months) and describe how the athlete evolved across each phase
-- Identify their defining moment of the year — the single entry or game that best represents their growth
-- Track long-term stat progressions: compare early-year game performances to late-year ones
-- Analyze how their mindset shifted over time — are their reflections more mature, self-aware, or detailed by year's end?
-- Look at training focus evolution — did they diversify or specialize? Was it the right call based on game results?
-- Assess year-long consistency: how many weeks/months had gaps? Were there burnout periods?
-- Connect their mantra to their year-long journey — did they live up to it? How has their relationship with it changed?
-- Project forward: based on this year's trajectory, what should next year look like?
-- Write this report as if it's a year-end letter from the best coach they've ever had — personal, detailed, inspiring`;
-  }
+${mantra ? `Their mantra: "${mantra}". Reference it only if it directly fits.` : ''}
 
-  return `You are an elite sports performance coach — the kind of coach that professional ${sport} athletes pay thousands of dollars to work with. You combine deep expertise in sport psychology, physical performance science, and mental conditioning.
+PHILOSOPHY:
+- Honest. Specific. Reference real data points (dates, scores, what they wrote).
+- Tough love + encouragement. If they had a bad ${periodLabel}, say it — then show the path.
+- No filler. No "keep it up." Every line earns its place.
 
-You are analyzing a ${sport} athlete's ${periodLabel} of daily performance journal entries. This athlete trusts you completely and relies on your feedback to get better every single day.
+DATA YOU RECEIVE:
+- V2 daily logs: training sessions (type, duration, intensity, notes), nutrition (meals logged), sleep (sleep/wake, duration).
+- Legacy V1 entries: workedOn, skillImproved, gameStats, bestMoment, biggestMistake, didWell, improveNext, proudMoment.
+- Use whichever is present. Treat both equally.
 
-YOUR COACHING PHILOSOPHY:
-- You speak directly to the athlete ("you"), like a trusted mentor who has watched every session
-- You are honest and specific — never generic. You reference EXACT details from their entries (dates, scores, what they wrote, patterns you see)
-- You balance tough love with genuine encouragement. If they had a bad day, acknowledge it but show them the path forward
-- You think about both the MENTAL and PHYSICAL side of performance — they are inseparable
-- You connect the dots between entries that the athlete might not see themselves
-- You treat their personal mantra as sacred — it represents who they want to become
-
-${mantra ? `THE ATHLETE'S PERSONAL MANTRA: "${mantra}" — This is their core identity statement. Reference it naturally when it connects to what you observe in their data. Don't force it, but when their actions align with or contradict this mantra, call it out.` : ''}
-
-DATA YOU WILL RECEIVE:
-The athlete may use two different logging formats:
-
-**V1 (Legacy) entries** — categorized as Training, Game, or Rest Day:
-- Training days include: areas worked on, skill that improved most, hardest drill, most common mistake, and tomorrow's focus
-- Game days include: sport-specific stats (goals, assists, points, etc.), best moment, biggest mistake, and improvement target
-- Rest days include: recovery activities, whether they studied their sport, and tomorrow's focus
-
-**V2 (Daily Log) entries** — modular sections that can include any combination of:
-- Training: one or more sessions with type (match, gym, cardio, technical, tactical, recovery), duration, intensity, specific details, and notes
-- Nutrition: meals logged (breakfast, lunch, dinner, snacks, drinks)
-- Sleep: sleep and wake times with calculated duration
-
-- Every day includes: what they did well, what to improve, and their proudest moment
-- V2 entries also show which sections were completed (training, nutrition, sleep) — use completion patterns to assess discipline
-
-CRITICAL RULES:
-- NEVER give generic advice like "keep it up" or "stay consistent" without connecting it to specific data points
-- ALWAYS quote or paraphrase what the athlete actually wrote — show them you read every word
-- When analyzing game stats, look for trends across multiple games (improving/declining numbers)
-- When they mention the same mistake repeatedly across training days, flag it as a pattern that needs targeted work
-- Connect their training focus areas to game performance — are they working on what matters?
-- Track rest day discipline — are they recovering properly between intense sessions?
-- Look for alignment between "proudest moment" entries and actual performance data
-- For V2 daily log entries: analyze training session variety (types, duration, intensity progression), nutrition consistency (how many meals logged, eating patterns), and sleep quality (duration trends, consistency of sleep/wake times)
-- Cross-reference V2 section completion patterns — athletes completing all 3 sections (training + nutrition + sleep) consistently show higher discipline
-- When both V1 and V2 entries exist in the same period, treat them equally — the athlete transitioned logging formats
-${extraMonthlyInstructions}${extraYearlyInstructions}
-
-RESPONSE FORMAT — You MUST respond with valid JSON matching this exact structure:
+OUTPUT — STRICT JSON. Every length limit is a hard cap. Stay UNDER it.
 
 {
-  "summary": "A powerful ${d.summaryLen} overview that immediately shows the athlete you understood their ${periodLabel}. Reference specific highs and lows by date. Set the tone for the rest of the report.",
+  "overallScore": integer 0–100,            // weighted: training 0.5, nutrition 0.2, sleep 0.3, dampened by missing days
+  "trainingScore": integer 0–100,
+  "nutritionScore": integer 0–100,
+  "sleepScore": integer 0–100,
+  "prevOverallScore": integer or null,      // estimate from prior period if data exists; null if unknown
+  "prevTrainingScore": integer or null,
+  "prevNutritionScore": integer or null,
+  "prevSleepScore": integer or null,
+  "improvementPct": number,                 // (overallScore - prevOverallScore)/prevOverallScore*100, 0 if unknown
+  "streakWeeks": integer,                   // consecutive eligible periods including this one; best-effort
+  "headline": "≤${limits.headlineMax} chars. Punchy. Like: 'You were close to a perfect week.'",
+  "bestDay": { "date": "YYYY-MM-DD", "score": integer, "label": "≤40 chars, e.g. 'Match win + 8h sleep'" },
+  "worstDay": { "date": "YYYY-MM-DD", "score": integer, "label": "≤40 chars, e.g. 'Skipped meals, 5h sleep'" },
+  "dailyScores": [ { "date": "YYYY-MM-DD", "score": integer 0–100 } ],   // exactly ${limits.dailyCount} items, chronological. Use 0 for unlogged days.
+  "strengths": [ "≤${limits.bulletMax} chars" ],          // exactly ${limits.bulletCount} bullets, terse, concrete, reference data
+  "areasForImprovement": [ "≤${limits.bulletMax} chars" ],// exactly ${limits.bulletCount} bullets
+  "actionableTips": [ "≤${limits.actionMax} chars, ONE imperative sentence" ], // EXACTLY 1 item — the single move
+  "motivationalMessage": "≤80 chars, one closing line",
+  "summary": "≤140 chars. Treat as a fallback subtitle only.",
+  "mentalPatterns": "≤140 chars",
+  "physicalPatterns": "≤140 chars",
+  "consistencyAnalysis": "≤140 chars"${monthlyExtras.trim() ? ',' : ''}
+${monthlyExtras.trim() ? `  "weeklyScores": [ { "weekIndex": integer, "score": integer 0–100, "label": "W1" } ],
+  "pillarTrend": {
+    "trainingPct": number, "nutritionPct": number, "sleepPct": number,
+    "trainingNote": "≤28 chars", "nutritionNote": "≤28 chars", "sleepNote": "≤28 chars"
+  }` : ''}
+}
 
-  "strengths": [
-    "Each strength must reference specific entries, dates, or patterns. Include ${d.strengthCount} strengths, each ${d.strengthLen} with concrete evidence from their logs."
-  ],
-
-  "areasForImprovement": [
-    "Each area must be specific and actionable. Reference what the athlete themselves identified in their reflections. Include ${d.improvementCount} areas, each ${d.improvementLen} with a clear path forward."
-  ],
-
-  "mentalPatterns": "A deep ${d.mentalLen} analysis of their psychological trends. Look at their reflections, proudest moments, and how they handle mistakes. Are their self-reflections becoming more self-aware? Do they bounce back from bad games?",
-
-  "physicalPatterns": "A ${d.physicalLen} analysis of their physical performance trends. Look at training areas, game stats progression, rest day placement, and training load. Are they overtraining? Under-recovering?",
-
-  "consistencyAnalysis": "A ${d.consistencyLen} assessment of their discipline and routine. How many days did they log? What does their activity type distribution look like? Is their logging consistent?",
-
-  "growthAreas": [
-    {
-      "area": "A specific area where the athlete is growing or needs attention — include ${d.growthCount} growth areas",
-      "analysis": "${d.growthAnalysisLen} analyzing their progress based on daily entries and stats",
-      "recommendation": "${d.growthRecLen} — specific, actionable steps they should take this coming ${periodLabel}"
-    }
-  ],
-
-  "actionableTips": [
-    "Each tip must be specific to THIS athlete and THIS ${periodLabel}'s data. Include ${d.tipsCount} tips, each 1-2 sentences."
-  ],
-
-  "motivationalMessage": "A personal, powerful closing message (${d.closingLen}) that connects their ${periodLabel}'s journey to their bigger picture. Reference their best moment and project forward."
-}`;
+CRITICAL:
+- Stay under every char/array limit. Truncate rather than overflow.
+- bestDay/worstDay must point to real dates inside the period.
+- If a pillar has zero data, score it 0 and say so in the matching bullet.
+- Never write paragraphs. The UI is bullets + scores.
+${reportType === 'monthly' ? '- Look for week-over-week trend across the month. Project forward in the headline.' : '- Identify the single move that would have moved the score the most. Put it in actionableTips.'}`;
 }
 
 function buildUserPrompt(entries, sport, reportType) {
-  const periodLabels = { weekly: 'week', monthly: 'month', yearly: 'year' };
+  const periodLabels = { weekly: 'week', monthly: 'month' };
   const periodLabel = periodLabels[reportType] || 'period';
   const totalDays = entries.length;
   const isV2Entry = (e) => {
@@ -186,11 +110,9 @@ ${'='.repeat(50)}
 
     const entryIsV2 = r && (r.version === 2 || Array.isArray(r.completedSections));
     if (entryIsV2) {
-      // V2 Daily Log — modular sections
       const sections = r.completedSections || [];
       prompt += `Sections completed: ${sections.join(', ') || 'none'}\n`;
 
-      // Training sessions
       if (r.training && r.training.sessions && r.training.sessions.length > 0) {
         prompt += `Training (${r.training.sessions.length} session${r.training.sessions.length > 1 ? 's' : ''}, total ${r.training.sessions.reduce((sum, s) => sum + (s.duration || 0), 0)}min):\n`;
         r.training.sessions.forEach((session, i) => {
@@ -204,7 +126,6 @@ ${'='.repeat(50)}
         });
       }
 
-      // Nutrition
       if (r.nutrition) {
         const meals = [];
         if (r.nutrition.breakfast) meals.push(`Breakfast: ${r.nutrition.breakfast}`);
@@ -218,7 +139,6 @@ ${'='.repeat(50)}
         }
       }
 
-      // Sleep
       if (r.sleep) {
         let sleepLine = `Sleep: ${r.sleep.sleepTime || '?'} → ${r.sleep.wakeTime || '?'}`;
         if (r.sleep.sleepTime && r.sleep.wakeTime) {
@@ -235,7 +155,6 @@ ${'='.repeat(50)}
         prompt += `${sleepLine}\n`;
       }
     } else {
-      // Legacy entry — any of these fields may be present
       if (r.workedOn && r.workedOn.length > 0) prompt += `Worked on: ${r.workedOn.join(', ')}\n`;
       if (r.skillImproved) prompt += `Skill that improved most: "${r.skillImproved}"\n`;
       if (r.hardestDrill) prompt += `Hardest drill: "${r.hardestDrill}"\n`;
@@ -262,27 +181,22 @@ ${'='.repeat(50)}
       if (r.discipline) prompt += `Discipline: ${r.discipline}\n`;
     }
 
-    // Universal reflections
     if (r.didWell) prompt += `What went well: "${r.didWell}"\n`;
     if (r.improveNext) prompt += `What to improve: "${r.improveNext}"\n`;
-
     if (r.proudMoment) prompt += `Proudest moment: "${r.proudMoment}"\n`;
-
-    // Legacy rotating questions
-    if (r.rotatingQ && r.rotatingA) {
-      prompt += `"${r.rotatingQ}": "${r.rotatingA}"\n`;
-    }
-    if (r.recoveryReflection) {
-      prompt += `Recovery reflection: "${r.recoveryReflection}"\n`;
-    }
+    if (r.rotatingQ && r.rotatingA) prompt += `"${r.rotatingQ}": "${r.rotatingA}"\n`;
+    if (r.recoveryReflection) prompt += `Recovery reflection: "${r.recoveryReflection}"\n`;
   });
 
-  prompt += `\nAnalyze this data thoroughly. Remember: this athlete is paying for premium coaching. Every word should prove you read their entries carefully and genuinely care about their development as a ${sport} athlete. Be their best coach.`;
-
+  prompt += `\nGenerate the JSON report card now. Hard caps on every length. Bullets only. Score every pillar. One action.`;
   return prompt;
 }
 
 async function generateReport(userId, reportType, periodStart, periodEnd) {
+  if (reportType !== 'weekly' && reportType !== 'monthly') {
+    throw new Error(`Unsupported report type: ${reportType}`);
+  }
+
   const userResult = await query('SELECT sport, mantra FROM users WHERE id = $1', [userId]);
   if (userResult.rows.length === 0) throw new Error('User not found');
   const { sport, mantra } = userResult.rows[0];
@@ -301,9 +215,9 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
   const systemPrompt = buildSystemPrompt(sport || 'general', mantra, reportType);
   const userPrompt = buildUserPrompt(entriesResult.rows, sport || 'general', reportType);
 
-  const tokenLimits = { weekly: 4000, monthly: 8000, yearly: 12000 };
-  const maxTokens = tokenLimits[reportType] || 4000;
-  const timeoutMs = { weekly: 60000, monthly: 90000, yearly: 120000 };
+  const tokenLimits = { weekly: 2400, monthly: 3600 };
+  const timeoutMs = { weekly: 60000, monthly: 90000 };
+  const maxTokens = tokenLimits[reportType] || 2400;
 
   const aiPromise = getClient().chat.completions.create({
     model: 'gpt-4o-mini',
@@ -312,7 +226,7 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
-    temperature: 0.75,
+    temperature: 0.7,
     max_tokens: maxTokens,
   });
 
@@ -329,6 +243,10 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
     throw new Error('AI returned invalid JSON for report');
   }
 
+  // Server-side enforcement: clamp arrays + truncate strings so a misbehaving
+  // model can't break the UI's tight layouts.
+  reportContent = sanitizeReportContent(reportContent, reportType);
+
   const result = await query(
     `INSERT INTO ai_reports (user_id, report_type, period_start, period_end, report_content, entry_count)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
@@ -336,6 +254,71 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
   );
 
   return result.rows[0];
+}
+
+function sanitizeReportContent(c, reportType) {
+  if (!c || typeof c !== 'object') return c;
+  const trim = (s, n) => (typeof s === 'string' ? s.slice(0, n) : s);
+  const intOrNull = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null);
+
+  c.overallScore = intOrNull(c.overallScore);
+  c.trainingScore = intOrNull(c.trainingScore);
+  c.nutritionScore = intOrNull(c.nutritionScore);
+  c.sleepScore = intOrNull(c.sleepScore);
+  c.prevOverallScore = Number.isFinite(c.prevOverallScore) ? Math.max(0, Math.min(100, Math.round(c.prevOverallScore))) : null;
+  c.prevTrainingScore = Number.isFinite(c.prevTrainingScore) ? Math.max(0, Math.min(100, Math.round(c.prevTrainingScore))) : null;
+  c.prevNutritionScore = Number.isFinite(c.prevNutritionScore) ? Math.max(0, Math.min(100, Math.round(c.prevNutritionScore))) : null;
+  c.prevSleepScore = Number.isFinite(c.prevSleepScore) ? Math.max(0, Math.min(100, Math.round(c.prevSleepScore))) : null;
+  c.improvementPct = Number.isFinite(c.improvementPct) ? c.improvementPct : 0;
+  c.streakWeeks = Number.isFinite(c.streakWeeks) ? Math.max(0, Math.round(c.streakWeeks)) : 0;
+  c.headline = trim(c.headline, 80);
+
+  const trimDay = (d) => d && typeof d === 'object' ? { date: trim(d.date, 10), score: intOrNull(d.score) ?? 0, label: trim(d.label, 60) } : null;
+  c.bestDay = trimDay(c.bestDay);
+  c.worstDay = trimDay(c.worstDay);
+
+  const dailyCap = reportType === 'monthly' ? 31 : 7;
+  if (Array.isArray(c.dailyScores)) {
+    c.dailyScores = c.dailyScores.slice(0, dailyCap).map(d => ({
+      date: trim(d?.date, 10),
+      score: Number.isFinite(d?.score) ? Math.max(0, Math.min(100, Math.round(d.score))) : 0,
+    }));
+  }
+
+  if (reportType === 'monthly' && Array.isArray(c.weeklyScores)) {
+    c.weeklyScores = c.weeklyScores.slice(0, 6).map(w => ({
+      weekIndex: Number.isFinite(w?.weekIndex) ? w.weekIndex : 0,
+      score: intOrNull(w?.score) ?? 0,
+      label: trim(w?.label, 8),
+    }));
+  } else if (reportType !== 'monthly') {
+    delete c.weeklyScores;
+  }
+
+  if (reportType === 'monthly' && c.pillarTrend && typeof c.pillarTrend === 'object') {
+    c.pillarTrend = {
+      trainingPct: Number.isFinite(c.pillarTrend.trainingPct) ? c.pillarTrend.trainingPct : 0,
+      nutritionPct: Number.isFinite(c.pillarTrend.nutritionPct) ? c.pillarTrend.nutritionPct : 0,
+      sleepPct: Number.isFinite(c.pillarTrend.sleepPct) ? c.pillarTrend.sleepPct : 0,
+      trainingNote: trim(c.pillarTrend.trainingNote, 32),
+      nutritionNote: trim(c.pillarTrend.nutritionNote, 32),
+      sleepNote: trim(c.pillarTrend.sleepNote, 32),
+    };
+  } else if (reportType !== 'monthly') {
+    delete c.pillarTrend;
+  }
+
+  if (Array.isArray(c.strengths)) c.strengths = c.strengths.slice(0, 3).map(s => trim(s, 70));
+  if (Array.isArray(c.areasForImprovement)) c.areasForImprovement = c.areasForImprovement.slice(0, 3).map(s => trim(s, 70));
+  if (Array.isArray(c.actionableTips)) c.actionableTips = c.actionableTips.slice(0, 1).map(s => trim(s, 70));
+
+  c.motivationalMessage = trim(c.motivationalMessage, 100);
+  c.summary = trim(c.summary, 180);
+  c.mentalPatterns = trim(c.mentalPatterns, 180);
+  c.physicalPatterns = trim(c.physicalPatterns, 180);
+  c.consistencyAnalysis = trim(c.consistencyAnalysis, 180);
+
+  return c;
 }
 
 module.exports = { generateReport };

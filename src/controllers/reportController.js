@@ -48,19 +48,6 @@ function getCurrentMonthBounds(tz) {
   };
 }
 
-function getCurrentYearBounds(tz) {
-  const { year, month, day } = getUserLocalDate(tz);
-  const start = `${year}-01-01`;
-  const end = `${year}-12-31`;
-  const now = new Date(Date.UTC(year, month - 1, day));
-  const endDate = new Date(Date.UTC(year, 11, 31));
-  return {
-    start,
-    end,
-    daysRemaining: Math.max(0, Math.ceil((endDate - now) / 86400000)),
-  };
-}
-
 exports.getStatus = async (req, res, next) => {
   try {
     const userId = req.userId;
@@ -71,25 +58,22 @@ exports.getStatus = async (req, res, next) => {
 
     const week = getCurrentWeekBounds(tz);
     const month = getCurrentMonthBounds(tz);
-    const year = getCurrentYearBounds(tz);
 
     const [counts, reports] = await Promise.all([
       query(
         `SELECT
            COUNT(*) FILTER (WHERE entry_date >= $2 AND entry_date <= $3) AS week_cnt,
-           COUNT(*) FILTER (WHERE entry_date >= $4 AND entry_date <= $5) AS month_cnt,
-           COUNT(*) FILTER (WHERE entry_date >= $6 AND entry_date <= $7) AS year_cnt
+           COUNT(*) FILTER (WHERE entry_date >= $4 AND entry_date <= $5) AS month_cnt
          FROM daily_entries WHERE user_id = $1`,
-        [userId, week.start, week.end, month.start, month.end, year.start, year.end]
+        [userId, week.start, week.end, month.start, month.end]
       ),
       query(
         `SELECT report_type, id FROM ai_reports
          WHERE user_id = $1 AND (
            (report_type = 'weekly'  AND period_start = $2 AND period_end = $3) OR
-           (report_type = 'monthly' AND period_start = $4 AND period_end = $5) OR
-           (report_type = 'yearly'  AND period_start = $6 AND period_end = $7)
+           (report_type = 'monthly' AND period_start = $4 AND period_end = $5)
          )`,
-        [userId, week.start, week.end, month.start, month.end, year.start, year.end]
+        [userId, week.start, week.end, month.start, month.end]
       ),
     ]);
 
@@ -115,15 +99,6 @@ exports.getStatus = async (req, res, next) => {
         daysRemaining: month.daysRemaining,
         reportReady: !!reportMap.monthly,
         reportId: reportMap.monthly || null,
-      },
-      yearly: {
-        periodStart: year.start,
-        periodEnd: year.end,
-        entryCount: parseInt(c.year_cnt),
-        requiredEntries: 50,
-        daysRemaining: year.daysRemaining,
-        reportReady: !!reportMap.yearly,
-        reportId: reportMap.yearly || null,
       },
     });
   } catch (err) {
