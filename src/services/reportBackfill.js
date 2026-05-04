@@ -146,8 +146,14 @@ function scoreEntry(e) {
   };
 }
 
-function clamp(n) { return Math.max(0, Math.min(100, Math.round(n))); }
-function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+function clamp(n) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+function avg(arr) {
+  if (!arr || arr.length === 0) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
 
 function headlineFor(score, prev) {
   const delta = Number.isFinite(prev) ? score - prev : null;
@@ -173,10 +179,13 @@ async function computeOverlay(userId, reportType, periodStart, periodEnd, prevPe
   const byDate = new Map();
   for (const row of entriesResult.rows) byDate.set(dateKey(row.entry_date), row);
 
-  // Score each day in the period (0 for unlogged days)
+  // Score each day in the period (0 for unlogged days). Note: scoreEntry()
+  // returns `overall` not `score` — the unlogged shortcut must match that
+  // shape or downstream `dailyScores` end up with undefined values that fail
+  // strict Codable decoding on iOS.
   const perDay = allDates.map(d => {
     const e = byDate.get(d);
-    if (!e) return { date: d, score: 0, training: 0, nutrition: 0, sleep: 0, label: 'unlogged' };
+    if (!e) return { date: d, overall: 0, training: 0, nutrition: 0, sleep: 0, label: 'unlogged' };
     const s = scoreEntry(e);
     return { date: d, ...s };
   });
