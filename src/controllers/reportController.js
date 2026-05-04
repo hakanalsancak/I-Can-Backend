@@ -1,5 +1,6 @@
 const { query } = require('../config/database');
 const { checkPremiumAccess } = require('../services/subscriptionService');
+const { applyBackfill } = require('../services/reportBackfill');
 
 function formatDate(d) {
   if (!d) return null;
@@ -109,19 +110,38 @@ exports.getStatus = async (req, res, next) => {
 exports.getReports = async (req, res, next) => {
   try {
     const result = await query(
-      `SELECT id, report_type, period_start, period_end, entry_count, created_at
+      `SELECT id, report_type, period_start, period_end, report_content, entry_count, created_at
        FROM ai_reports WHERE user_id = $1
        ORDER BY period_end DESC, created_at DESC LIMIT 50`,
       [req.userId]
     );
 
-    const reports = result.rows.map((r) => ({
-      id: r.id,
-      reportType: r.report_type,
-      periodStart: formatDate(r.period_start),
-      periodEnd: formatDate(r.period_end),
-      entryCount: r.entry_count,
-      createdAt: r.created_at,
+    // Backfill scores for the most recent N reports of each type so the hero
+    // card and "Last 4 reports" chips render correctly for legacy reports.
+    // Older list rows return as-is — small chips just show "—".
+    const HERO_BACKFILL_LIMIT = 4;
+    const seenByType = { weekly: 0, monthly: 0 };
+
+    const reports = await Promise.all(result.rows.map(async (r) => {
+      const periodStart = formatDate(r.period_start);
+      const periodEnd = formatDate(r.period_end);
+      let content = r.report_content;
+      const type = r.report_type;
+
+      if ((type === 'weekly' || type === 'monthly') && seenByType[type] < HERO_BACKFILL_LIMIT) {
+        seenByType[type]++;
+        content = await applyBackfill(req.userId, type, periodStart, periodEnd, content);
+      }
+
+      return {
+        id: r.id,
+        reportType: type,
+        periodStart,
+        periodEnd,
+        content,
+        entryCount: r.entry_count,
+        createdAt: r.created_at,
+      };
     }));
 
     res.json({ reports });
@@ -147,12 +167,24 @@ exports.getReportById = async (req, res, next) => {
     }
 
     const r = result.rows[0];
+    const periodStart = formatDate(r.period_start);
+    const periodEnd = formatDate(r.period_end);
+
+    // Legacy reports (pre-v2 schema) lack overallScore/dailyScores/etc. and
+    // would render as "—" in the new paged UI. Compute the missing structured
+    // fields from the user's daily_entries and merge them in. No-op for new
+    // reports that already carry the v2 fields.
+    let content = r.report_content;
+    if (r.report_type === 'weekly' || r.report_type === 'monthly') {
+      content = await applyBackfill(req.userId, r.report_type, periodStart, periodEnd, content);
+    }
+
     res.json({
       id: r.id,
       reportType: r.report_type,
-      periodStart: formatDate(r.period_start),
-      periodEnd: formatDate(r.period_end),
-      content: r.report_content,
+      periodStart,
+      periodEnd,
+      content,
       entryCount: r.entry_count,
       createdAt: r.created_at,
     });
