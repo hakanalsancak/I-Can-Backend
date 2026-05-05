@@ -165,16 +165,17 @@ Drop (keep=false) when:
   return Array.isArray(parsed.items) ? parsed.items : [];
 }
 
-async function ingestFromSources(sport, sources) {
+async function ingestFromSources(sport, sources, opts = {}) {
   const allItems = [];
   for (const src of sources) {
     const items = await fetchSource(src);
     allItems.push(...items);
   }
-  return processItems(sport, allItems);
+  return processItems(sport, allItems, opts);
 }
 
-async function processItems(sport, allItems) {
+async function processItems(sport, allItems, opts = {}) {
+  const minScore = opts.minScore ?? 3;
 
   // Stage 1: hard filter
   const stage1 = allItems.filter(preFilter);
@@ -186,7 +187,7 @@ async function processItems(sport, allItems) {
     const hash = hashUrl(item.link);
     if (await existsByHash(hash)) continue;
     const s = score(item);
-    if (s < 3) continue;
+    if (s < minScore) continue;
     candidates.push({ ...item, hash, score: s });
   }
 
@@ -282,10 +283,16 @@ async function ingestAllSports() {
     summary[GENERAL_KEY] = { error: err.message };
   }
 
-  // Pass 2: sport-specific feeds per supported sport
+  // Pass 2: sport-specific feeds per supported sport.
+  // Use minScore: 0 because ESPN sport feeds skew news/results, not training keywords;
+  // the AI classifier still drops gossip and decides relevance.
   for (const sport of SUPPORTED_SPORTS) {
     try {
-      summary[sport] = await ingestFromSources(sport, sportSpecificSources(sport));
+      summary[sport] = await ingestFromSources(
+        sport,
+        sportSpecificSources(sport),
+        { minScore: 0 }
+      );
     } catch (err) {
       console.error(`Sport ${sport} ingest failed:`, err.message);
       summary[sport] = { error: err.message };
