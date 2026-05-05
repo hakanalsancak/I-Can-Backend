@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 const community = require('../controllers/communityController');
 const profile = require('../controllers/communityProfileController');
 const interactions = require('../controllers/communityInteractionsController');
 const sportFeed = require('../controllers/sportFeedController');
 const dm = require('../controllers/dmController');
+const moderation = require('../controllers/moderationController');
 
 router.use(authenticate);
 
@@ -20,6 +21,14 @@ router.post('/messages/conversations', dm.openConversation);
 router.get('/messages/conversations/:id', dm.getMessages);
 router.post('/messages/conversations/:id/messages', dm.sendMessage);
 router.post('/messages/conversations/:id/read', dm.markRead);
+
+router.post('/reports', moderation.createReport);
+router.post('/blocks/:userId', moderation.block);
+router.delete('/blocks/:userId', moderation.unblock);
+router.get('/blocks', moderation.listBlocks);
+
+router.get('/_admin/reports', requireAdmin, moderation.adminListReports);
+router.post('/_admin/reports/:id/action', requireAdmin, moderation.adminActionReport);
 router.post('/posts', community.createPost);
 router.get('/posts/:id', community.getPost);
 router.delete('/posts/:id', community.deletePost);
