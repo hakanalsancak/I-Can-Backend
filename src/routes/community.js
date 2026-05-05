@@ -11,6 +11,9 @@ const moderation = require('../controllers/moderationController');
 router.use(authenticate);
 
 router.get('/feed/foryou', community.getForYouFeed);
+router.get('/featured', community.getFeatured);
+router.post('/_admin/featured/:postId', requireAdmin, community.adminFeaturePost);
+router.delete('/_admin/featured/:postId', requireAdmin, community.adminUnfeaturePost);
 router.get('/feed/friends', community.getFriendsFeed);
 router.get('/sport-feed', sportFeed.getSportFeed);
 router.post('/sport-feed/track-interaction', sportFeed.trackInteraction);

@@ -128,6 +128,115 @@ exports.createPost = async (req, res, next) => {
   }
 };
 
+// GET /api/community/featured?limit=
+exports.getFeatured = async (req, res, next) => {
+  try {
+    const limitRaw = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(limitRaw, 1), 20)
+      : 10;
+
+    const result = await query(
+      `SELECT p.id, p.author_id, p.type, p.visibility, p.body, p.photo_url,
+              p.metadata, p.sport, p.like_count, p.comment_count, p.created_at,
+              u.username   AS author_username,
+              u.full_name  AS author_full_name,
+              u.profile_photo_url AS author_photo_url,
+              u.sport      AS author_sport,
+              EXISTS (
+                SELECT 1 FROM post_likes pl
+                 WHERE pl.post_id = p.id AND pl.user_id = $1
+              ) AS liked_by_me,
+              EXISTS (
+                SELECT 1 FROM post_saves ps
+                 WHERE ps.post_id = p.id AND ps.user_id = $1
+              ) AS saved_by_me
+         FROM featured_posts f
+         JOIN posts p ON p.id = f.post_id
+         JOIN users u ON u.id = p.author_id
+        WHERE p.deleted_at IS NULL
+          AND p.visibility = 'public'
+          AND (f.expires_at IS NULL OR f.expires_at > NOW())
+          AND NOT EXISTS (
+            SELECT 1 FROM blocks b
+             WHERE (b.blocker_id = $1 AND b.blocked_id = p.author_id)
+                OR (b.blocker_id = p.author_id AND b.blocked_id = $1)
+          )
+        ORDER BY f.rank DESC, f.featured_at DESC
+        LIMIT $2`,
+      [req.userId, limit]
+    );
+
+    res.json({ items: result.rows.map(formatPost) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/community/_admin/featured/:postId  body: { rank?: number, expiresAt?: ISO }
+exports.adminFeaturePost = async (req, res, next) => {
+  try {
+    const { postId } = req.params;
+    const UUID = /^[0-9a-fA-F-]{36}$/;
+    if (!UUID.test(postId)) {
+      return res.status(400).json({ error: 'Invalid post id' });
+    }
+    const { rank, expiresAt } = req.body || {};
+    let cleanRank = 0;
+    if (rank !== undefined) {
+      const r = parseInt(rank, 10);
+      if (!Number.isFinite(r) || r < 0 || r > 1000) {
+        return res.status(400).json({ error: 'Invalid rank' });
+      }
+      cleanRank = r;
+    }
+    let cleanExpires = null;
+    if (expiresAt) {
+      const d = new Date(expiresAt);
+      if (Number.isNaN(d.getTime())) {
+        return res.status(400).json({ error: 'Invalid expiresAt' });
+      }
+      cleanExpires = d.toISOString();
+    }
+
+    const exists = await query(
+      'SELECT id FROM posts WHERE id = $1 AND deleted_at IS NULL',
+      [postId]
+    );
+    if (exists.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    await query(
+      `INSERT INTO featured_posts (post_id, rank, expires_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (post_id) DO UPDATE SET
+         rank = EXCLUDED.rank,
+         expires_at = EXCLUDED.expires_at,
+         featured_at = NOW()`,
+      [postId, cleanRank, cleanExpires]
+    );
+    res.json({ featured: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// DELETE /api/community/_admin/featured/:postId
+exports.adminUnfeaturePost = async (req, res, next) => {
+  try {
+    const { postId } = req.params;
+    const UUID = /^[0-9a-fA-F-]{36}$/;
+    if (!UUID.test(postId)) {
+      return res.status(400).json({ error: 'Invalid post id' });
+    }
+    await query('DELETE FROM featured_posts WHERE post_id = $1', [postId]);
+    res.json({ featured: false });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // GET /api/community/feed/foryou?offset=&limit=
 // Ranking score (0..1):
 //   engagement * 0.4 + recency * 0.4 + sport_match * 0.15 + author_affinity * 0.05
