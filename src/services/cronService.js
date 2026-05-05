@@ -397,6 +397,28 @@ function initCronJobs() {
     }
   }, { timezone: 'UTC' });
 
+  // Sport feed ingestion: every 2 hours. Best-effort.
+  cron.schedule('0 */2 * * *', async () => {
+    try {
+      const { ingestAllSports } = require('./sportFeed/ingest');
+      const summary = await ingestAllSports();
+      console.log('Sport feed ingest summary:', JSON.stringify(summary));
+    } catch (err) {
+      console.error('Sport feed ingest cron error:', err.message);
+    }
+  }, { timezone: 'UTC' });
+
+  // Sport feed retention: weekly cleanup of articles older than 60 days
+  cron.schedule('0 4 * * 0', async () => {
+    try {
+      const { pruneOldArticles } = require('./sportFeed/ingest');
+      await pruneOldArticles(60);
+      console.log('Sport feed pruned old articles');
+    } catch (err) {
+      console.error('Sport feed prune error:', err.message);
+    }
+  }, { timezone: 'UTC' });
+
   console.log('Cron jobs initialized');
 }
 

@@ -4,11 +4,15 @@ const { authenticate } = require('../middleware/auth');
 const community = require('../controllers/communityController');
 const profile = require('../controllers/communityProfileController');
 const interactions = require('../controllers/communityInteractionsController');
+const sportFeed = require('../controllers/sportFeedController');
 
 router.use(authenticate);
 
 router.get('/feed/foryou', community.getForYouFeed);
 router.get('/feed/friends', community.getFriendsFeed);
+router.get('/sport-feed', sportFeed.getSportFeed);
+router.post('/sport-feed/track-interaction', sportFeed.trackInteraction);
+router.post('/sport-feed/_seed', sportFeed.adminSeed);
 router.post('/posts', community.createPost);
 router.get('/posts/:id', community.getPost);
 router.delete('/posts/:id', community.deletePost);

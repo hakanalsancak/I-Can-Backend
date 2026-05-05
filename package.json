@@ -28,7 +28,8 @@
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.16",
     "openai": "^4.70.0",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "rss-parser": "^3.13.0"
   },
   "devDependencies": {
     "jest": "^30.3.0",
