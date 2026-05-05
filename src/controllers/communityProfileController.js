@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const { notifyFollow } = require('../services/communityNotifier');
 
 const UUID = /^[0-9a-fA-F-]{36}$/;
 const HANDLE = /^[a-z0-9_]{3,30}$/;
@@ -133,6 +134,23 @@ exports.setHandle = async (req, res, next) => {
   }
 };
 
+// PUT /api/community/users/me/notifications { enabled: bool }
+exports.setNotificationPref = async (req, res, next) => {
+  try {
+    const { enabled } = req.body || {};
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+    await query(
+      'UPDATE users SET community_notifications_enabled = $1 WHERE id = $2',
+      [enabled, req.userId]
+    );
+    res.json({ enabled });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // PUT /api/community/users/me/bio
 exports.setBio = async (req, res, next) => {
   try {
@@ -181,12 +199,17 @@ exports.follow = async (req, res, next) => {
       return res.status(403).json({ error: 'Action not allowed' });
     }
 
-    await query(
+    const ins = await query(
       `INSERT INTO follows (follower_id, followee_id)
        VALUES ($1, $2)
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT DO NOTHING
+       RETURNING 1`,
       [req.userId, id]
     );
+    if (ins.rowCount > 0) {
+      notifyFollow({ senderId: req.userId, followeeId: id })
+        .catch(err => console.error('notifyFollow error:', err.message));
+    }
     res.json({ following: true });
   } catch (err) {
     next(err);

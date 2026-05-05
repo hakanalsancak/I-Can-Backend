@@ -1,4 +1,5 @@
 const { query, getClient } = require('../config/database');
+const { notifyLike, notifyComment } = require('../services/communityNotifier');
 
 const UUID = /^[0-9a-fA-F-]{36}$/;
 const COMMENT_MAX = 1000;
@@ -72,6 +73,11 @@ exports.likePost = async (req, res, next) => {
       [id]
     );
     await client.query('COMMIT');
+
+    if (ins.rowCount > 0) {
+      notifyLike({ senderId: req.userId, postId: id, postAuthorId: post.author_id })
+        .catch(err => console.error('notifyLike error:', err.message));
+    }
 
     res.json({ liked: true, likeCount: after.rows[0]?.like_count ?? 0 });
   } catch (err) {
@@ -279,6 +285,13 @@ exports.createComment = async (req, res, next) => {
       [req.userId]
     );
     const a = author.rows[0] || {};
+    notifyComment({
+      senderId: req.userId,
+      postId: id,
+      postAuthorId: post.author_id,
+      snippet: trimmed,
+    }).catch(err => console.error('notifyComment error:', err.message));
+
     res.status(201).json(formatComment({
       ...inserted.rows[0],
       author_username: a.username,

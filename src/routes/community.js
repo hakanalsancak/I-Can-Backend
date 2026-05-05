@@ -44,6 +44,7 @@ router.delete('/comments/:id', interactions.deleteComment);
 router.get('/users/me', profile.getMyProfile);
 router.put('/users/me/handle', profile.setHandle);
 router.put('/users/me/bio', profile.setBio);
+router.put('/users/me/notifications', profile.setNotificationPref);
 router.get('/users/:id', profile.getProfile);
 router.post('/users/:id/follow', profile.follow);
 router.delete('/users/:id/follow', profile.unfollow);

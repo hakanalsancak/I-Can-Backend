@@ -1,4 +1,5 @@
 const { query, getClient } = require('../config/database');
+const { notifyDM } = require('../services/communityNotifier');
 
 const UUID = /^[0-9a-fA-F-]{36}$/;
 const ISO_TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
@@ -277,6 +278,15 @@ exports.sendMessage = async (req, res, next) => {
       [id, req.userId]
     );
     await client.query('COMMIT');
+
+    if (other.rows.length > 0) {
+      notifyDM({
+        senderId: req.userId,
+        recipientId: other.rows[0].user_id,
+        conversationId: id,
+        body: trimmed,
+      }).catch(err => console.error('notifyDM error:', err.message));
+    }
 
     res.status(201).json(formatMessage(inserted.rows[0]));
   } catch (err) {
