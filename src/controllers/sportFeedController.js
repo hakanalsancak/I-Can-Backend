@@ -44,8 +44,12 @@ exports.getSportFeed = async (req, res, next) => {
 
     const params = [];
     const conds = [];
+    // Always show 'general' (cross-sport) articles plus the user's sport
     if (userSport) {
-      params.push(userSport);
+      params.push(userSport, 'general');
+      conds.push(`a.sport IN ($${params.length - 1}, $${params.length})`);
+    } else {
+      params.push('general');
       conds.push(`a.sport = $${params.length}`);
     }
     if (category) {

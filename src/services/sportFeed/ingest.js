@@ -2,7 +2,14 @@ const crypto = require('crypto');
 const Parser = require('rss-parser');
 const { query } = require('../../config/database');
 const { getClient: getOpenAIClient } = require('../../config/openai');
-const { sourcesForSport, allSources } = require('./sources');
+const {
+  sourcesForSport,
+  allSources,
+  sportSpecificSources,
+  generalSources,
+  GENERAL_KEY,
+  SUPPORTED_SPORTS,
+} = require('./sources');
 
 const parser = new Parser({ timeout: 10_000 });
 
@@ -127,13 +134,16 @@ Drop (keep=false) when:
   return Array.isArray(parsed.items) ? parsed.items : [];
 }
 
-async function ingestForSport(sport) {
-  const sources = sourcesForSport(sport);
+async function ingestFromSources(sport, sources) {
   const allItems = [];
   for (const src of sources) {
     const items = await fetchSource(src);
     allItems.push(...items);
   }
+  return processItems(sport, allItems);
+}
+
+async function processItems(sport, allItems) {
 
   // Stage 1: hard filter
   const stage1 = allItems.filter(preFilter);
@@ -217,17 +227,40 @@ async function ingestForSport(sport) {
   return { fetched: allItems.length, kept: kept.length };
 }
 
+// Public: ingest both general (cross-sport) feeds and the sport-specific ones.
+// Used by the manual seed endpoint for a single user's sport.
+async function ingestForSport(sport) {
+  const general = await ingestFromSources(GENERAL_KEY, generalSources());
+  const specific = await ingestFromSources(sport, sportSpecificSources(sport));
+  return {
+    general,
+    sport: specific,
+    fetched: general.fetched + specific.fetched,
+    kept: general.kept + specific.kept,
+  };
+}
+
 async function ingestAllSports() {
-  const sports = ['basketball', 'football', 'soccer', 'boxing', 'running'];
   const summary = {};
-  for (const sport of sports) {
+
+  // Pass 1: general feeds once — articles tagged sport='general'
+  try {
+    summary[GENERAL_KEY] = await ingestFromSources(GENERAL_KEY, generalSources());
+  } catch (err) {
+    console.error('General ingest failed:', err.message);
+    summary[GENERAL_KEY] = { error: err.message };
+  }
+
+  // Pass 2: sport-specific feeds per supported sport
+  for (const sport of SUPPORTED_SPORTS) {
     try {
-      summary[sport] = await ingestForSport(sport);
+      summary[sport] = await ingestFromSources(sport, sportSpecificSources(sport));
     } catch (err) {
       console.error(`Sport ${sport} ingest failed:`, err.message);
       summary[sport] = { error: err.message };
     }
   }
+
   return summary;
 }
 

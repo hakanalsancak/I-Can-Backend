@@ -7,11 +7,9 @@ const SOURCES = {
     { name: 'Stronger by Science', url: 'https://www.strongerbyscience.com/feed/' },
     { name: 'Breaking Muscle', url: 'https://breakingmuscle.com/feed/' },
     { name: 'Outside Online', url: 'https://www.outsideonline.com/feed/' },
-    { name: 'T-Nation', url: 'https://www.t-nation.com/feed/' },
   ],
   // Recovery / nutrition / sleep — explicitly seed this category
   recovery: [
-    { name: 'Examine', url: 'https://examine.com/feed/' },
     { name: 'Sleep Foundation', url: 'https://www.sleepfoundation.org/feed' },
     { name: 'Precision Nutrition', url: 'https://www.precisionnutrition.com/feed' },
   ],
@@ -27,37 +25,47 @@ const SOURCES = {
   ],
   // Sport-specific — keys match users.sport values (lowercased)
   basketball: [
-    { name: 'HoopsHype', url: 'https://hoopshype.com/feed/' },
+    { name: 'ESPN NBA', url: 'https://www.espn.com/espn/rss/nba/news' },
   ],
   football: [
-    { name: 'Fox Soccer', url: 'https://www.foxsports.com/stories/soccer/feed' },
+    { name: 'ESPN NFL', url: 'https://www.espn.com/espn/rss/nfl/news' },
   ],
   soccer: [
-    { name: 'Fox Soccer', url: 'https://www.foxsports.com/stories/soccer/feed' },
+    { name: 'ESPN Soccer', url: 'https://www.espn.com/espn/rss/soccer/news' },
   ],
   boxing: [
-    { name: 'BoxingScene', url: 'https://www.boxingscene.com/rss/news.xml' },
+    { name: 'ESPN Boxing', url: 'https://www.espn.com/espn/rss/boxing/news' },
   ],
-  running: [
-    { name: 'Outside Online', url: 'https://www.outsideonline.com/feed/' },
+  tennis: [
+    { name: 'ESPN Tennis', url: 'https://www.espn.com/espn/rss/tennis/news' },
+  ],
+  cricket: [
+    { name: 'ESPN Cricinfo', url: 'https://www.espncricinfo.com/rss/content/story/feeds/0.xml' },
   ],
 };
 
-function sourcesForSport(sport) {
+const GENERAL_KEY = 'general';
+const NON_SPORT_KEYS = new Set(['general', 'recovery', 'mindset', 'news']);
+const SUPPORTED_SPORTS = ['basketball', 'tennis', 'boxing', 'cricket', 'soccer', 'football'];
+
+function sportSpecificSources(sport) {
   const key = (sport || '').toLowerCase().trim();
-  // Pull from general + every category bucket + sport-specific
-  const sportSpecific = SOURCES[key] && key !== 'general'
-                        && key !== 'recovery'
-                        && key !== 'mindset'
-                        && key !== 'news'
-    ? SOURCES[key] : [];
+  if (NON_SPORT_KEYS.has(key)) return [];
+  return SOURCES[key] || [];
+}
+
+function generalSources() {
   return [
     ...SOURCES.general,
     ...SOURCES.recovery,
     ...SOURCES.mindset,
     ...SOURCES.news,
-    ...sportSpecific,
   ];
+}
+
+// Back-compat alias still used by the seed endpoint
+function sourcesForSport(sport) {
+  return [...generalSources(), ...sportSpecificSources(sport)];
 }
 
 function allSources() {
@@ -74,4 +82,12 @@ function allSources() {
   return out;
 }
 
-module.exports = { SOURCES, sourcesForSport, allSources };
+module.exports = {
+  SOURCES,
+  sourcesForSport,
+  allSources,
+  sportSpecificSources,
+  generalSources,
+  GENERAL_KEY,
+  SUPPORTED_SPORTS,
+};
