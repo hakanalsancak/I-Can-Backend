@@ -397,8 +397,8 @@ function initCronJobs() {
     }
   }, { timezone: 'UTC' });
 
-  // Sport feed ingestion: every 2 hours. Best-effort.
-  cron.schedule('0 */2 * * *', async () => {
+  // Sport feed ingestion: hourly. Best-effort.
+  cron.schedule('0 * * * *', async () => {
     try {
       const { ingestAllSports } = require('./sportFeed/ingest');
       const summary = await ingestAllSports();
