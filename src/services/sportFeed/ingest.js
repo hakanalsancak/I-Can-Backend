@@ -179,6 +179,7 @@ async function processItems(sport, allItems, opts = {}) {
   const minScore = opts.minScore ?? 3;
   const minBodyLen = opts.minBodyLen ?? 200;
   const minRelevance = opts.minRelevance ?? 60;
+  const forcedCategory = opts.forcedCategory ?? null;
 
   // Stage 1: hard filter
   const stage1 = allItems.filter(item => preFilter(item, { minBodyLen }));
@@ -223,9 +224,11 @@ async function processItems(sport, allItems, opts = {}) {
       const headline = String(d.headline || item.title).slice(0, 200);
       kept.push({
         sport,
-        category: ['training', 'recovery', 'mindset', 'news'].includes(d.category)
-          ? d.category
-          : 'training',
+        category: forcedCategory
+          ? forcedCategory
+          : (['training', 'recovery', 'mindset', 'news'].includes(d.category)
+             ? d.category
+             : 'training'),
         title: headline,
         original_title: item.title,
         summary,
@@ -266,7 +269,11 @@ async function processItems(sport, allItems, opts = {}) {
 // Used by the manual seed endpoint for a single user's sport.
 async function ingestForSport(sport) {
   const general = await ingestFromSources(GENERAL_KEY, generalSources());
-  const specific = await ingestFromSources(sport, sportSpecificSources(sport));
+  const specific = await ingestFromSources(
+    sport,
+    sportSpecificSources(sport),
+    { minScore: 0, minBodyLen: 80, minRelevance: 40, forcedCategory: 'news' }
+  );
   return {
     general,
     sport: specific,
@@ -294,7 +301,7 @@ async function ingestAllSports() {
       summary[sport] = await ingestFromSources(
         sport,
         sportSpecificSources(sport),
-        { minScore: 0, minBodyLen: 80, minRelevance: 40 }
+        { minScore: 0, minBodyLen: 80, minRelevance: 40, forcedCategory: 'news' }
       );
     } catch (err) {
       console.error(`Sport ${sport} ingest failed:`, err.message);
