@@ -8,6 +8,7 @@ const interactions = require('../controllers/communityInteractionsController');
 router.use(authenticate);
 
 router.get('/feed/foryou', community.getForYouFeed);
+router.get('/feed/friends', community.getFriendsFeed);
 router.post('/posts', community.createPost);
 router.get('/posts/:id', community.getPost);
 router.delete('/posts/:id', community.deletePost);
