@@ -3,6 +3,7 @@ const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const community = require('../controllers/communityController');
 const profile = require('../controllers/communityProfileController');
+const interactions = require('../controllers/communityInteractionsController');
 
 router.use(authenticate);
 
@@ -10,6 +11,14 @@ router.get('/feed/foryou', community.getForYouFeed);
 router.post('/posts', community.createPost);
 router.get('/posts/:id', community.getPost);
 router.delete('/posts/:id', community.deletePost);
+
+router.post('/posts/:id/like', interactions.likePost);
+router.delete('/posts/:id/like', interactions.unlikePost);
+router.post('/posts/:id/save', interactions.savePost);
+router.delete('/posts/:id/save', interactions.unsavePost);
+router.get('/posts/:id/comments', interactions.getComments);
+router.post('/posts/:id/comments', interactions.createComment);
+router.delete('/comments/:id', interactions.deleteComment);
 
 router.get('/users/me', profile.getMyProfile);
 router.put('/users/me/handle', profile.setHandle);
