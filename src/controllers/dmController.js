@@ -1,4 +1,5 @@
 const { query, getClient } = require('../config/database');
+const cloudinary = require('../config/cloudinary');
 const { notifyDM } = require('../services/communityNotifier');
 
 const UUID = /^[0-9a-fA-F-]{36}$/;
@@ -226,18 +227,51 @@ exports.getMessages = async (req, res, next) => {
 };
 
 // POST /api/community/messages/conversations/:id/messages
+// body: { body?, attachmentType?, attachmentRef? }
+// Either body or attachment must be present.
+const ALLOWED_ATTACHMENT_TYPES = new Set(['image', 'video', 'voice']);
 exports.sendMessage = async (req, res, next) => {
   const client = await getClient();
   try {
     const { id } = req.params;
     if (!UUID.test(id)) return res.status(400).json({ error: 'Invalid id' });
-    const { body } = req.body || {};
-    if (typeof body !== 'string') {
-      return res.status(400).json({ error: 'body must be a string' });
+
+    const { body, attachmentType, attachmentRef } = req.body || {};
+
+    let trimmed = '';
+    if (body !== undefined && body !== null) {
+      if (typeof body !== 'string') {
+        return res.status(400).json({ error: 'body must be a string' });
+      }
+      trimmed = body.trim();
+      if (trimmed.length > MAX_BODY) {
+        return res.status(400).json({ error: `body must be ${MAX_BODY} characters or fewer` });
+      }
     }
-    const trimmed = body.trim();
-    if (trimmed.length === 0 || trimmed.length > MAX_BODY) {
-      return res.status(400).json({ error: `body must be 1–${MAX_BODY} characters` });
+
+    let cleanAttachmentType = null;
+    let cleanAttachmentRef = null;
+    if (attachmentType || attachmentRef) {
+      if (!ALLOWED_ATTACHMENT_TYPES.has(attachmentType)) {
+        return res.status(400).json({ error: 'Invalid attachmentType' });
+      }
+      if (typeof attachmentRef !== 'object' || Array.isArray(attachmentRef)) {
+        return res.status(400).json({ error: 'attachmentRef must be an object' });
+      }
+      if (typeof attachmentRef.url !== 'string'
+          || !/^https:\/\//.test(attachmentRef.url)) {
+        return res.status(400).json({ error: 'attachmentRef.url must be https' });
+      }
+      // Limit attachmentRef size to keep JSON reasonable
+      if (JSON.stringify(attachmentRef).length > 1000) {
+        return res.status(400).json({ error: 'attachmentRef too large' });
+      }
+      cleanAttachmentType = attachmentType;
+      cleanAttachmentRef = attachmentRef;
+    }
+
+    if (trimmed.length === 0 && !cleanAttachmentType) {
+      return res.status(400).json({ error: 'Message must contain text or an attachment' });
     }
 
     const member = await query(
@@ -262,10 +296,16 @@ exports.sendMessage = async (req, res, next) => {
 
     await client.query('BEGIN');
     const inserted = await client.query(
-      `INSERT INTO dm_messages (conversation_id, sender_id, body)
-       VALUES ($1, $2, $3)
+      `INSERT INTO dm_messages (conversation_id, sender_id, body, attachment_type, attachment_ref)
+       VALUES ($1, $2, $3, $4, $5::jsonb)
        RETURNING id, conversation_id, sender_id, body, attachment_type, attachment_ref, created_at`,
-      [id, req.userId, trimmed]
+      [
+        id,
+        req.userId,
+        trimmed.length > 0 ? trimmed : null,
+        cleanAttachmentType,
+        cleanAttachmentRef ? JSON.stringify(cleanAttachmentRef) : null,
+      ]
     );
     await client.query(
       `UPDATE dm_conversations SET last_message_at = NOW() WHERE id = $1`,
@@ -280,11 +320,20 @@ exports.sendMessage = async (req, res, next) => {
     await client.query('COMMIT');
 
     if (other.rows.length > 0) {
+      let pushBody = trimmed;
+      if (!pushBody) {
+        switch (cleanAttachmentType) {
+          case 'image': pushBody = 'sent a photo'; break;
+          case 'video': pushBody = 'sent a video'; break;
+          case 'voice': pushBody = 'sent a voice message'; break;
+          default: pushBody = 'sent a message';
+        }
+      }
       notifyDM({
         senderId: req.userId,
         recipientId: other.rows[0].user_id,
         conversationId: id,
-        body: trimmed,
+        body: pushBody,
       }).catch(err => console.error('notifyDM error:', err.message));
     }
 
@@ -294,6 +343,63 @@ exports.sendMessage = async (req, res, next) => {
     next(err);
   } finally {
     client.release();
+  }
+};
+
+// POST /api/community/messages/upload
+// Multipart upload: field "file" + form field "kind" ("image" | "video" | "voice")
+// Uploads to Cloudinary and returns { url, durationMs?, width?, height?, kind }.
+exports.uploadMedia = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'file is required' });
+    }
+    const kind = (req.body?.kind || '').toString();
+    if (!ALLOWED_ATTACHMENT_TYPES.has(kind)) {
+      return res.status(400).json({ error: 'Invalid kind' });
+    }
+
+    const mime = req.file.mimetype || '';
+    if (kind === 'image' && !/^image\//.test(mime)) {
+      return res.status(400).json({ error: 'image upload requires image/* mime' });
+    }
+    if (kind === 'video' && !/^video\//.test(mime)) {
+      return res.status(400).json({ error: 'video upload requires video/* mime' });
+    }
+    if (kind === 'voice' && !/^(audio\/|video\/mp4)/.test(mime)) {
+      // iOS records m4a which is sometimes reported as audio/m4a or video/mp4
+      return res.status(400).json({ error: 'voice upload requires audio/* mime' });
+    }
+
+    const resourceType = kind === 'image' ? 'image' : 'video'; // Cloudinary uses 'video' for audio too
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: `ican/dm-${kind}`,
+          resource_type: resourceType,
+          // Cap delivered video to keep bandwidth in check; don't transform images automatically.
+          ...(kind === 'video'
+            ? { eager: [{ format: 'mp4', video_codec: 'h264', quality: 'auto' }], eager_async: true }
+            : {}),
+        },
+        (err, result) => (err ? reject(err) : resolve(result))
+      );
+      stream.end(req.file.buffer);
+    });
+
+    res.json({
+      url: uploadResult.secure_url,
+      kind,
+      width: uploadResult.width,
+      height: uploadResult.height,
+      durationMs: uploadResult.duration ? Math.round(uploadResult.duration * 1000) : null,
+      bytes: uploadResult.bytes,
+    });
+  } catch (err) {
+    if (err && /File too large/i.test(err.message || '')) {
+      return res.status(413).json({ error: 'File too large' });
+    }
+    next(err);
   }
 };
 

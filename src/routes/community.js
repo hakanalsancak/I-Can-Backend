@@ -1,6 +1,14 @@
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const { authenticate, requireAdmin } = require('../middleware/auth');
+
+// Up to 100 MB per file; videos can be longer than 5 min in raw uploads from
+// older phones, so let the upload through and validate duration on the client.
+const dmUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 },
+});
 const community = require('../controllers/communityController');
 const profile = require('../controllers/communityProfileController');
 const interactions = require('../controllers/communityInteractionsController');
@@ -24,6 +32,7 @@ router.post('/messages/conversations', dm.openConversation);
 router.get('/messages/conversations/:id', dm.getMessages);
 router.post('/messages/conversations/:id/messages', dm.sendMessage);
 router.post('/messages/conversations/:id/read', dm.markRead);
+router.post('/messages/upload', dmUpload.single('file'), dm.uploadMedia);
 
 router.post('/reports', moderation.createReport);
 router.post('/blocks/:userId', moderation.block);
