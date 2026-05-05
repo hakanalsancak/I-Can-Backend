@@ -11,7 +11,17 @@ const {
   SUPPORTED_SPORTS,
 } = require('./sources');
 
-const parser = new Parser({ timeout: 10_000 });
+const parser = new Parser({
+  timeout: 10_000,
+  customFields: {
+    item: [
+      ['media:content', 'mediaContent', { keepArray: true }],
+      ['media:thumbnail', 'mediaThumbnail', { keepArray: true }],
+      ['itunes:image', 'itunesImage'],
+      ['content:encoded', 'contentEncoded'],
+    ],
+  },
+});
 
 const KEYWORD_HITS = [
   'training', 'technique', 'drill', 'program', 'workout', 'strength',
@@ -68,10 +78,31 @@ async function fetchSource(source) {
 }
 
 function extractImage(item) {
-  if (item.enclosure?.url) return item.enclosure.url;
-  const html = item.content || '';
+  // 1. enclosure (most common for podcasts/news)
+  if (item.enclosure?.url && /^https?:\/\//.test(item.enclosure.url)) {
+    return item.enclosure.url;
+  }
+  // 2. media:content (used by ESPN, NYT, etc.)
+  if (Array.isArray(item.mediaContent)) {
+    for (const m of item.mediaContent) {
+      const url = m?.$?.url;
+      if (url && /^https?:\/\//.test(url)) return url;
+    }
+  }
+  // 3. media:thumbnail
+  if (Array.isArray(item.mediaThumbnail)) {
+    for (const m of item.mediaThumbnail) {
+      const url = m?.$?.url;
+      if (url && /^https?:\/\//.test(url)) return url;
+    }
+  }
+  // 4. itunes:image
+  if (item.itunesImage?.$?.href) return item.itunesImage.$.href;
+  // 5. inline <img> in content / description
+  const html = `${item.contentEncoded || ''} ${item.content || ''} ${item.contentSnippet || ''}`;
   const m = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-  return m ? m[1] : null;
+  if (m && /^https?:\/\//.test(m[1])) return m[1];
+  return null;
 }
 
 async function existsByHash(hash) {
