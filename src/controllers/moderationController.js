@@ -110,6 +110,7 @@ exports.createReport = async (req, res, next) => {
 
 // POST /api/community/blocks/:userId
 exports.block = async (req, res, next) => {
+  const client = await getClient();
   try {
     const { userId } = req.params;
     if (!UUID.test(userId)) {
@@ -118,22 +119,42 @@ exports.block = async (req, res, next) => {
     if (userId === req.userId) {
       return res.status(400).json({ error: 'Cannot block yourself' });
     }
-    await query(
+
+    await client.query('BEGIN');
+    await client.query(
       `INSERT INTO blocks (blocker_id, blocked_id)
        VALUES ($1, $2)
        ON CONFLICT DO NOTHING`,
       [req.userId, userId]
     );
-    // Tearing down any follow either direction once they're blocked
-    await query(
+    // Drop follows in both directions
+    await client.query(
       `DELETE FROM follows
         WHERE (follower_id = $1 AND followee_id = $2)
            OR (follower_id = $2 AND followee_id = $1)`,
       [req.userId, userId]
     );
+    // Drop friendship in both directions (table is asymmetric, two rows)
+    await client.query(
+      `DELETE FROM friendships
+        WHERE (user_id = $1 AND friend_id = $2)
+           OR (user_id = $2 AND friend_id = $1)`,
+      [req.userId, userId]
+    );
+    // Drop any pending friend requests in either direction
+    await client.query(
+      `DELETE FROM friend_requests
+        WHERE (sender_id = $1 AND receiver_id = $2)
+           OR (sender_id = $2 AND receiver_id = $1)`,
+      [req.userId, userId]
+    );
+    await client.query('COMMIT');
     res.json({ blocked: true });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     next(err);
+  } finally {
+    client.release();
   }
 };
 
