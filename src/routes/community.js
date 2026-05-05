@@ -5,6 +5,7 @@ const community = require('../controllers/communityController');
 const profile = require('../controllers/communityProfileController');
 const interactions = require('../controllers/communityInteractionsController');
 const sportFeed = require('../controllers/sportFeedController');
+const dm = require('../controllers/dmController');
 
 router.use(authenticate);
 
@@ -13,6 +14,12 @@ router.get('/feed/friends', community.getFriendsFeed);
 router.get('/sport-feed', sportFeed.getSportFeed);
 router.post('/sport-feed/track-interaction', sportFeed.trackInteraction);
 router.post('/sport-feed/_seed', sportFeed.adminSeed);
+
+router.get('/messages/conversations', dm.listConversations);
+router.post('/messages/conversations', dm.openConversation);
+router.get('/messages/conversations/:id', dm.getMessages);
+router.post('/messages/conversations/:id/messages', dm.sendMessage);
+router.post('/messages/conversations/:id/read', dm.markRead);
 router.post('/posts', community.createPost);
 router.get('/posts/:id', community.getPost);
 router.delete('/posts/:id', community.deletePost);
