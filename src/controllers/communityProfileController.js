@@ -9,9 +9,11 @@ function formatProfile(row, viewerId) {
     id: row.id,
     handle: row.handle || null,
     fullName: row.full_name || null,
+    username: row.username || null,
     bio: row.bio || null,
     sport: row.sport || null,
     position: row.position || null,
+    team: row.team || null,
     country: row.country || null,
     profilePhotoUrl: row.profile_photo_url || null,
     profileVisibility: row.profile_visibility || 'public',
@@ -34,8 +36,8 @@ function formatProfile(row, viewerId) {
 }
 
 const PROFILE_SELECT = `
-  SELECT u.id, u.handle, u.full_name, u.bio, u.sport, u.position, u.country,
-         u.profile_photo_url, u.profile_visibility,
+  SELECT u.id, u.handle, u.full_name, u.username, u.bio, u.sport, u.position,
+         u.team, u.country, u.profile_photo_url, u.profile_visibility,
          CASE
            WHEN s.last_entry_date >= CURRENT_DATE - INTERVAL '1 day'
              THEN s.current_streak ELSE 0
