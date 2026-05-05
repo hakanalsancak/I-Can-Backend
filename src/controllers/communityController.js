@@ -145,35 +145,44 @@ exports.getForYouFeed = async (req, res, next) => {
       cursorTs = cursor;
     }
 
-    const result = await query(
-      `SELECT p.id, p.author_id, p.type, p.visibility, p.body, p.photo_url,
-              p.metadata, p.sport, p.like_count, p.comment_count, p.created_at,
-              u.username   AS author_username,
-              u.full_name  AS author_full_name,
-              u.profile_photo_url AS author_photo_url,
-              u.sport      AS author_sport,
-              EXISTS (
-                SELECT 1 FROM post_likes pl
-                 WHERE pl.post_id = p.id AND pl.user_id = $1
-              ) AS liked_by_me,
-              EXISTS (
-                SELECT 1 FROM post_saves ps
-                 WHERE ps.post_id = p.id AND ps.user_id = $1
-              ) AS saved_by_me
-         FROM posts p
-         JOIN users u ON u.id = p.author_id
-        WHERE p.deleted_at IS NULL
-          AND p.visibility = 'public'
-          AND ($2::timestamptz IS NULL OR p.created_at < $2::timestamptz)
-          AND NOT EXISTS (
-            SELECT 1 FROM blocks b
-             WHERE (b.blocker_id = $1 AND b.blocked_id = p.author_id)
-                OR (b.blocker_id = p.author_id AND b.blocked_id = $1)
-          )
-        ORDER BY p.created_at DESC
-        LIMIT $3`,
-      [req.userId, cursorTs, limit]
-    );
+    const baseSql = `
+      SELECT p.id, p.author_id, p.type, p.visibility, p.body, p.photo_url,
+             p.metadata, p.sport, p.like_count, p.comment_count, p.created_at,
+             u.username   AS author_username,
+             u.full_name  AS author_full_name,
+             u.profile_photo_url AS author_photo_url,
+             u.sport      AS author_sport,
+             EXISTS (
+               SELECT 1 FROM post_likes pl
+                WHERE pl.post_id = p.id AND pl.user_id = $1
+             ) AS liked_by_me,
+             EXISTS (
+               SELECT 1 FROM post_saves ps
+                WHERE ps.post_id = p.id AND ps.user_id = $1
+             ) AS saved_by_me
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+       WHERE p.deleted_at IS NULL
+         AND p.visibility = 'public'
+         AND NOT EXISTS (
+           SELECT 1 FROM blocks b
+            WHERE (b.blocker_id = $1 AND b.blocked_id = p.author_id)
+               OR (b.blocker_id = p.author_id AND b.blocked_id = $1)
+         )`;
+
+    let result;
+    if (cursorTs) {
+      result = await query(
+        `${baseSql} AND p.created_at < $2::timestamptz
+         ORDER BY p.created_at DESC LIMIT $3`,
+        [req.userId, cursorTs, limit]
+      );
+    } else {
+      result = await query(
+        `${baseSql} ORDER BY p.created_at DESC LIMIT $2`,
+        [req.userId, limit]
+      );
+    }
 
     const items = result.rows.map(formatPost);
     const nextCursor = items.length === limit
