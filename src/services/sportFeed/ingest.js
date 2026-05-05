@@ -99,10 +99,17 @@ For each input article, return:
   "headline": string (max 70 chars, action-led, no clickbait),
   "summary_bullets": [string, string, string] (each max 90 chars)
 }
+
+Category definitions — pick the BEST single fit:
+- "recovery" = sleep, nutrition, hydration, mobility, stretching, injury rehab, soreness, deload, fatigue. Pick this even if the article briefly mentions training.
+- "mindset" = focus, motivation, discipline, anxiety, confidence, habit-building, mental performance, pre-competition mental prep, philosophy applied to athletics.
+- "news" = competition results, rule changes, official events, sport-specific updates that don't belong elsewhere.
+- "training" = ONLY if it's primarily about workouts, drills, lifting programs, sets/reps, technique, periodization. Default away from training when the article fits another category.
+
 Drop (keep=false) when:
-- Pure entertainment / gossip / celebrity
+- Pure entertainment / gossip / celebrity / lifestyle
 - Generic listicle ("Top 10 ...") with no actionable content
-- Promotional / buying guide
+- Promotional / buying guide / product review
 - Not actionable for a serious athlete
 - About transfers, salaries, contracts, personal life`,
       },
