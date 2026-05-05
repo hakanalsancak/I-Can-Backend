@@ -128,7 +128,9 @@ exports.createPost = async (req, res, next) => {
   }
 };
 
-// GET /api/community/feed/foryou?cursor=&limit=
+// GET /api/community/feed/foryou?offset=&limit=
+// Ranking score (0..1):
+//   engagement * 0.4 + recency * 0.4 + sport_match * 0.15 + author_affinity * 0.05
 exports.getForYouFeed = async (req, res, next) => {
   try {
     const limitRaw = parseInt(req.query.limit, 10);
@@ -136,60 +138,66 @@ exports.getForYouFeed = async (req, res, next) => {
       ? Math.min(Math.max(limitRaw, 1), 50)
       : 20;
 
-    const { cursor } = req.query;
-    let cursorTs = null;
-    if (cursor) {
-      if (typeof cursor !== 'string' || !ISO_TS.test(cursor)) {
-        return res.status(400).json({ error: 'Invalid cursor' });
-      }
-      cursorTs = cursor;
-    }
+    const offsetRaw = parseInt(req.query.offset, 10);
+    const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0
+      ? Math.min(offsetRaw, 1000)
+      : 0;
 
-    const baseSql = `
-      SELECT p.id, p.author_id, p.type, p.visibility, p.body, p.photo_url,
-             p.metadata, p.sport, p.like_count, p.comment_count, p.created_at,
-             u.username   AS author_username,
-             u.full_name  AS author_full_name,
-             u.profile_photo_url AS author_photo_url,
-             u.sport      AS author_sport,
-             EXISTS (
-               SELECT 1 FROM post_likes pl
-                WHERE pl.post_id = p.id AND pl.user_id = $1
-             ) AS liked_by_me,
-             EXISTS (
-               SELECT 1 FROM post_saves ps
-                WHERE ps.post_id = p.id AND ps.user_id = $1
-             ) AS saved_by_me
-        FROM posts p
-        JOIN users u ON u.id = p.author_id
-       WHERE p.deleted_at IS NULL
-         AND p.visibility = 'public'
-         AND NOT EXISTS (
-           SELECT 1 FROM blocks b
-            WHERE (b.blocker_id = $1 AND b.blocked_id = p.author_id)
-               OR (b.blocker_id = p.author_id AND b.blocked_id = $1)
-         )`;
+    // Look up viewer's sport for sport_match scoring
+    const me = await query('SELECT sport FROM users WHERE id = $1', [req.userId]);
+    const userSport = me.rows[0]?.sport || null;
 
-    let result;
-    if (cursorTs) {
-      result = await query(
-        `${baseSql} AND p.created_at < $2::timestamptz
-         ORDER BY p.created_at DESC LIMIT $3`,
-        [req.userId, cursorTs, limit]
-      );
-    } else {
-      result = await query(
-        `${baseSql} ORDER BY p.created_at DESC LIMIT $2`,
-        [req.userId, limit]
-      );
-    }
+    const result = await query(
+      `SELECT p.id, p.author_id, p.type, p.visibility, p.body, p.photo_url,
+              p.metadata, p.sport, p.like_count, p.comment_count, p.created_at,
+              u.username   AS author_username,
+              u.full_name  AS author_full_name,
+              u.profile_photo_url AS author_photo_url,
+              u.sport      AS author_sport,
+              EXISTS (
+                SELECT 1 FROM post_likes pl
+                 WHERE pl.post_id = p.id AND pl.user_id = $1
+              ) AS liked_by_me,
+              EXISTS (
+                SELECT 1 FROM post_saves ps
+                 WHERE ps.post_id = p.id AND ps.user_id = $1
+              ) AS saved_by_me,
+              (
+                LEAST(LN(1 + p.like_count + 2 * p.comment_count) / 5.0, 1.0) * 0.4
+                + GREATEST(0.0,
+                    1.0 - EXTRACT(EPOCH FROM (NOW() - p.created_at)) / (48.0 * 3600.0)
+                  ) * 0.4
+                + (CASE WHEN $2::text IS NOT NULL AND p.sport = $2 THEN 1.0 ELSE 0.0 END) * 0.15
+                + (CASE
+                     WHEN EXISTS (
+                       SELECT 1 FROM follows
+                        WHERE follower_id = $1 AND followee_id = p.author_id
+                     ) THEN 1.0
+                     WHEN EXISTS (
+                       SELECT 1 FROM friendships
+                        WHERE user_id = $1 AND friend_id = p.author_id
+                     ) THEN 0.7
+                     ELSE 0.0
+                   END) * 0.05
+              ) AS score
+         FROM posts p
+         JOIN users u ON u.id = p.author_id
+        WHERE p.deleted_at IS NULL
+          AND p.visibility = 'public'
+          AND NOT EXISTS (
+            SELECT 1 FROM blocks b
+             WHERE (b.blocker_id = $1 AND b.blocked_id = p.author_id)
+                OR (b.blocker_id = p.author_id AND b.blocked_id = $1)
+          )
+        ORDER BY score DESC, p.created_at DESC
+        LIMIT $3 OFFSET $4`,
+      [req.userId, userSport, limit, offset]
+    );
 
     const items = result.rows.map(formatPost);
-    const nextCursor = items.length === limit
-      ? items[items.length - 1].createdAt
-      : null;
+    const nextOffset = items.length === limit ? offset + limit : null;
 
-    res.json({ items, nextCursor });
+    res.json({ items, nextOffset });
   } catch (err) {
     next(err);
   }
