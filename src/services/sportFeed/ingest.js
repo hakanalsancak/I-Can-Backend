@@ -36,11 +36,12 @@ const KEYWORD_MISSES = [
 ];
 const TITLE_BLOCKLIST = /(transfer|rumou?r|girlfriend|wife|salary|net worth|arrested|scandal)/i;
 
-function preFilter(item) {
+function preFilter(item, opts = {}) {
+  const minBodyLen = opts.minBodyLen ?? 200;
   if (!item.title) return false;
   if (TITLE_BLOCKLIST.test(item.title)) return false;
   const body = (item.contentSnippet || item.content || '').toString();
-  if (body.length < 200) return false;
+  if (body.length < minBodyLen) return false;
   return true;
 }
 
@@ -176,9 +177,11 @@ async function ingestFromSources(sport, sources, opts = {}) {
 
 async function processItems(sport, allItems, opts = {}) {
   const minScore = opts.minScore ?? 3;
+  const minBodyLen = opts.minBodyLen ?? 200;
+  const minRelevance = opts.minRelevance ?? 60;
 
   // Stage 1: hard filter
-  const stage1 = allItems.filter(preFilter);
+  const stage1 = allItems.filter(item => preFilter(item, { minBodyLen }));
 
   // Stage 2: keyword score, drop dup URLs we already stored
   const candidates = [];
@@ -210,7 +213,7 @@ async function processItems(sport, allItems, opts = {}) {
       continue;
     }
     for (const d of decisions) {
-      if (!d || d.keep !== true || (d.relevance_score ?? 0) < 60) continue;
+      if (!d || d.keep !== true || (d.relevance_score ?? 0) < minRelevance) continue;
       const item = batch[d.index];
       if (!item) continue;
       const summary = Array.isArray(d.summary_bullets)
@@ -291,7 +294,7 @@ async function ingestAllSports() {
       summary[sport] = await ingestFromSources(
         sport,
         sportSpecificSources(sport),
-        { minScore: 0 }
+        { minScore: 0, minBodyLen: 80, minRelevance: 40 }
       );
     } catch (err) {
       console.error(`Sport ${sport} ingest failed:`, err.message);
