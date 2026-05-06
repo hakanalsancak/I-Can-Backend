@@ -2,7 +2,6 @@ const { query, getClient } = require('../config/database');
 const { getClient: getOpenAI } = require('../config/openai');
 const { checkPremiumAccess } = require('../services/subscriptionService');
 const { incrementalStreak } = require('./streakController');
-const { maybeAutoPostStreak } = require('../services/communityAutoPost');
 const { computeHealthScore } = require('../services/nutritionScorer');
 
 function formatDate(d) {
@@ -102,13 +101,6 @@ exports.submitEntry = async (req, res, next) => {
           console.error('Health score persistence failed:', scoreErr.message);
         }
       }
-    }
-
-    // Best-effort community auto-post on streak milestones; never fail the submission
-    try {
-      await maybeAutoPostStreak(req.userId, streak.current_streak);
-    } catch (autoPostErr) {
-      console.error('Community auto-post failed:', autoPostErr.message);
     }
 
     res.status(201).json({

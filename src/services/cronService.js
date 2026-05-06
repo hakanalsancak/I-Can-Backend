@@ -325,6 +325,22 @@ function initCronJobs() {
     }
   }, { timezone: 'UTC' });
 
+  // Community bot posts: every 2 hours, drop a few posts from seed accounts
+  // so the For You feed always has fresh activity. Real users are never
+  // auto-posted on behalf of.
+  cron.schedule('17 */2 * * *', async () => {
+    try {
+      const { generateBotPosts } = require('./communityAutoPost');
+      const count = 3 + Math.floor(Math.random() * 4); // 3–6 posts
+      const created = await generateBotPosts(count);
+      if (created.length > 0) {
+        console.log(`Bot posts created: ${created.length}`);
+      }
+    } catch (err) {
+      console.error('Bot post cron error:', err.message);
+    }
+  }, { timezone: 'UTC' });
+
   // Mark expired subscriptions: daily at 02:00 UTC
   cron.schedule('0 2 * * *', async () => {
     try {
