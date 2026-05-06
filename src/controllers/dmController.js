@@ -403,6 +403,47 @@ exports.uploadMedia = async (req, res, next) => {
   }
 };
 
+// DELETE /api/community/messages/conversations/:id/messages/:messageId
+// Soft-deletes the user's own message. Filtering by deleted_at IS NULL is
+// already in place across listing/unread queries, so the message disappears
+// for both sides on next refresh.
+exports.deleteMessage = async (req, res, next) => {
+  try {
+    const { id, messageId } = req.params;
+    if (!UUID.test(id)) return res.status(400).json({ error: 'Invalid id' });
+    if (!UUID.test(messageId)) return res.status(400).json({ error: 'Invalid messageId' });
+
+    const member = await query(
+      `SELECT 1 FROM dm_conversation_members WHERE conversation_id = $1 AND user_id = $2 LIMIT 1`,
+      [id, req.userId]
+    );
+    if (member.rows.length === 0) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const msg = await query(
+      `SELECT sender_id FROM dm_messages
+        WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL
+        LIMIT 1`,
+      [messageId, id]
+    );
+    if (msg.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    if (msg.rows[0].sender_id !== req.userId) {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+
+    await query(
+      `UPDATE dm_messages SET deleted_at = NOW() WHERE id = $1`,
+      [messageId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // POST /api/community/messages/conversations/:id/read
 exports.markRead = async (req, res, next) => {
   try {

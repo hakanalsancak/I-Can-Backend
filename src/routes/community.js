@@ -31,6 +31,7 @@ router.get('/messages/conversations', dm.listConversations);
 router.post('/messages/conversations', dm.openConversation);
 router.get('/messages/conversations/:id', dm.getMessages);
 router.post('/messages/conversations/:id/messages', dm.sendMessage);
+router.delete('/messages/conversations/:id/messages/:messageId', dm.deleteMessage);
 router.post('/messages/conversations/:id/read', dm.markRead);
 router.post('/messages/upload', dmUpload.single('file'), dm.uploadMedia);
 
