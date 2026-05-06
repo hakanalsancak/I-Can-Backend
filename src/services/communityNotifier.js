@@ -49,27 +49,6 @@ async function senderDisplayName(senderId) {
   return 'Someone';
 }
 
-async function notifyLike({ senderId, postId, postAuthorId }) {
-  if (!postAuthorId || postAuthorId === senderId) return;
-  const name = await senderDisplayName(senderId);
-  await sendCommunityPush(postAuthorId, {
-    title: name,
-    body: 'liked your post.',
-    data: { type: 'community.like', postId },
-  });
-}
-
-async function notifyComment({ senderId, postId, postAuthorId, snippet }) {
-  if (!postAuthorId || postAuthorId === senderId) return;
-  const name = await senderDisplayName(senderId);
-  const trimmed = (snippet || '').trim().slice(0, 100);
-  await sendCommunityPush(postAuthorId, {
-    title: `${name} commented`,
-    body: trimmed.length > 0 ? trimmed : 'Tap to read.',
-    data: { type: 'community.comment', postId },
-  });
-}
-
 async function notifyDM({ senderId, recipientId, conversationId, body }) {
   if (!recipientId || recipientId === senderId) return;
   const name = await senderDisplayName(senderId);
@@ -93,8 +72,6 @@ async function notifyFollow({ senderId, followeeId }) {
 
 module.exports = {
   sendCommunityPush,
-  notifyLike,
-  notifyComment,
   notifyDM,
   notifyFollow,
 };

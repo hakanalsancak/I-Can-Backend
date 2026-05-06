@@ -9,20 +9,13 @@ const dmUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
 });
-const community = require('../controllers/communityController');
 const profile = require('../controllers/communityProfileController');
-const interactions = require('../controllers/communityInteractionsController');
 const sportFeed = require('../controllers/sportFeedController');
 const dm = require('../controllers/dmController');
 const moderation = require('../controllers/moderationController');
 
 router.use(authenticate);
 
-router.get('/feed/foryou', community.getForYouFeed);
-router.get('/featured', community.getFeatured);
-router.post('/_admin/featured/:postId', requireAdmin, community.adminFeaturePost);
-router.delete('/_admin/featured/:postId', requireAdmin, community.adminUnfeaturePost);
-router.get('/feed/friends', community.getFriendsFeed);
 router.get('/sport-feed', sportFeed.getSportFeed);
 router.post('/sport-feed/track-interaction', sportFeed.trackInteraction);
 router.post('/sport-feed/_seed', sportFeed.adminSeed);
@@ -42,17 +35,6 @@ router.get('/blocks', moderation.listBlocks);
 
 router.get('/_admin/reports', requireAdmin, moderation.adminListReports);
 router.post('/_admin/reports/:id/action', requireAdmin, moderation.adminActionReport);
-router.post('/posts', community.createPost);
-router.get('/posts/:id', community.getPost);
-router.delete('/posts/:id', community.deletePost);
-
-router.post('/posts/:id/like', interactions.likePost);
-router.delete('/posts/:id/like', interactions.unlikePost);
-router.post('/posts/:id/save', interactions.savePost);
-router.delete('/posts/:id/save', interactions.unsavePost);
-router.get('/posts/:id/comments', interactions.getComments);
-router.post('/posts/:id/comments', interactions.createComment);
-router.delete('/comments/:id', interactions.deleteComment);
 
 router.get('/users/me', profile.getMyProfile);
 router.put('/users/me/handle', profile.setHandle);
