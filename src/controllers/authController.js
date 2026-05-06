@@ -71,6 +71,7 @@ function formatUserFields(user) {
     weight: user.weight != null ? Number(user.weight) : null,
     hideHeightWeight: user.hide_height_weight || false,
     hideLogs: user.hide_logs || false,
+    communityNotificationsEnabled: user.community_notifications_enabled !== false,
   };
 }
 

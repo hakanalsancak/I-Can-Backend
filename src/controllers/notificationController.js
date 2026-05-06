@@ -2,17 +2,48 @@ const { query } = require('../config/database');
 
 exports.updatePreferences = async (req, res, next) => {
   try {
-    const { notificationFrequency } = req.body;
-    if (notificationFrequency === undefined || notificationFrequency < 0 || notificationFrequency > 3) {
-      return res.status(400).json({ error: 'Notification frequency must be between 0 and 3' });
+    const { notificationFrequency, communityNotificationsEnabled } = req.body;
+
+    const updates = [];
+    const params = [];
+    let idx = 1;
+
+    // Treat null and undefined identically — iOS encodes nil as null.
+    if (notificationFrequency !== undefined && notificationFrequency !== null) {
+      if (!Number.isInteger(notificationFrequency) || notificationFrequency < 0 || notificationFrequency > 3) {
+        return res.status(400).json({ error: 'Notification frequency must be an integer between 0 and 3' });
+      }
+      updates.push(`notification_frequency = $${idx++}`);
+      params.push(notificationFrequency);
     }
 
-    await query(
-      'UPDATE users SET notification_frequency = $1, updated_at = NOW() WHERE id = $2',
-      [notificationFrequency, req.userId]
+    if (communityNotificationsEnabled !== undefined && communityNotificationsEnabled !== null) {
+      if (typeof communityNotificationsEnabled !== 'boolean') {
+        return res.status(400).json({ error: 'communityNotificationsEnabled must be a boolean' });
+      }
+      updates.push(`community_notifications_enabled = $${idx++}`);
+      params.push(communityNotificationsEnabled);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No preferences provided' });
+    }
+
+    updates.push(`updated_at = NOW()`);
+    params.push(req.userId);
+
+    const result = await query(
+      `UPDATE users SET ${updates.join(', ')}
+        WHERE id = $${idx}
+        RETURNING notification_frequency, community_notifications_enabled`,
+      params
     );
 
-    res.json({ notificationFrequency });
+    const row = result.rows[0] || {};
+    res.json({
+      notificationFrequency: row.notification_frequency,
+      communityNotificationsEnabled: row.community_notifications_enabled,
+    });
   } catch (err) {
     next(err);
   }
