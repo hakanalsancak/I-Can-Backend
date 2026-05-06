@@ -22,7 +22,6 @@ function formatProfile(row, viewerId) {
       currentStreak: row.current_streak ?? 0,
       longestStreak: row.longest_streak ?? 0,
       totalSessions: row.total_sessions ?? 0,
-      postCount: row.post_count ?? 0,
       followerCount: row.follower_count ?? 0,
       followingCount: row.following_count ?? 0,
     },
@@ -44,8 +43,6 @@ const PROFILE_SELECT = `
          END AS current_streak,
          s.longest_streak,
          (SELECT COUNT(*)::int FROM daily_entries de WHERE de.user_id = u.id) AS total_sessions,
-         (SELECT COUNT(*)::int FROM posts p
-            WHERE p.author_id = u.id AND p.deleted_at IS NULL) AS post_count,
          (SELECT COUNT(*)::int FROM follows f WHERE f.followee_id = u.id) AS follower_count,
          (SELECT COUNT(*)::int FROM follows f WHERE f.follower_id = u.id) AS following_count,
          EXISTS (SELECT 1 FROM friendships fr
