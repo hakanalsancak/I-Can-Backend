@@ -60,18 +60,7 @@ async function notifyDM({ senderId, recipientId, conversationId, body }) {
   });
 }
 
-async function notifyFollow({ senderId, followeeId }) {
-  if (!followeeId || followeeId === senderId) return;
-  const name = await senderDisplayName(senderId);
-  await sendCommunityPush(followeeId, {
-    title: name,
-    body: 'started following you.',
-    data: { type: 'community.follow', userId: senderId },
-  });
-}
-
 module.exports = {
   sendCommunityPush,
   notifyDM,
-  notifyFollow,
 };

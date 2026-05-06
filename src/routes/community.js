@@ -9,7 +9,6 @@ const dmUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
 });
-const profile = require('../controllers/communityProfileController');
 const sportFeed = require('../controllers/sportFeedController');
 const dm = require('../controllers/dmController');
 const moderation = require('../controllers/moderationController');
@@ -35,13 +34,5 @@ router.get('/blocks', moderation.listBlocks);
 
 router.get('/_admin/reports', requireAdmin, moderation.adminListReports);
 router.post('/_admin/reports/:id/action', requireAdmin, moderation.adminActionReport);
-
-router.get('/users/me', profile.getMyProfile);
-router.put('/users/me/handle', profile.setHandle);
-router.put('/users/me/bio', profile.setBio);
-router.put('/users/me/notifications', profile.setNotificationPref);
-router.get('/users/:id', profile.getProfile);
-router.post('/users/:id/follow', profile.follow);
-router.delete('/users/:id/follow', profile.unfollow);
 
 module.exports = router;
