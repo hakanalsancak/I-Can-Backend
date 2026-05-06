@@ -317,7 +317,7 @@ exports.getFriendProfile = async (req, res, next) => {
     const result = await query(
       `SELECT u.id, u.username, u.full_name, u.sport, u.team, u.position, u.country,
               u.competition_level, u.mantra, u.profile_photo_url,
-              u.height, u.weight, u.hide_height_weight,
+              u.height, u.weight, u.hide_height_weight, u.hide_logs,
               ${EFFECTIVE_STREAK} AS current_streak, s.longest_streak
        FROM users u
        LEFT JOIN streaks s ON s.user_id = u.id
@@ -332,6 +332,7 @@ exports.getFriendProfile = async (req, res, next) => {
     const u = result.rows[0];
     const isOwnProfile = id === req.userId;
     const showHeightWeight = isOwnProfile || !u.hide_height_weight;
+    const logsHidden = !isOwnProfile && !!u.hide_logs;
 
     res.json({
       id: u.id,
@@ -349,7 +350,117 @@ exports.getFriendProfile = async (req, res, next) => {
       isFriend: id !== req.userId,
       height: showHeightWeight && u.height != null ? Number(u.height) : null,
       weight: showHeightWeight && u.weight != null ? Number(u.weight) : null,
+      logsHidden,
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getFriendLogs = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (id !== req.userId) {
+      const isFriend = await query(
+        'SELECT 1 FROM friendships WHERE user_id = $1 AND friend_id = $2',
+        [req.userId, id]
+      );
+      if (isFriend.rows.length === 0) {
+        return res.status(403).json({ error: 'You can only view logs of your friends' });
+      }
+    }
+
+    if (id !== req.userId) {
+      const targetRow = await query('SELECT hide_logs FROM users WHERE id = $1', [id]);
+      if (targetRow.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      if (targetRow.rows[0].hide_logs) {
+        return res.status(403).json({ error: 'This user has hidden their logs', code: 'LOGS_HIDDEN' });
+      }
+    }
+
+    const MAX_LIMIT = 30;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 14, 1), MAX_LIMIT);
+
+    const result = await query(
+      `SELECT id, entry_date, responses
+       FROM daily_entries
+       WHERE user_id = $1
+       ORDER BY entry_date DESC
+       LIMIT $2`,
+      [id, limit]
+    );
+
+    // Strip personal free-text reflections; expose only training/nutrition/sleep
+    const SAFE_TRAINING_KEYS = new Set([
+      'trainingType', 'duration', 'intensity', 'sessionScore',
+      'matchType', 'result', 'winMethod', 'performanceRating', 'minutesPlayed', 'position', 'keyStats',
+      'gymFocus', 'effortLevel', 'exercises',
+      'cardioType', 'distance', 'distanceUnit', 'steps', 'pace', 'cardioEffort',
+      'skillTrained', 'focusQuality',
+      'tacticalType', 'understandingLevel',
+      'recoveryType',
+    ]);
+
+    const logs = [];
+    for (const row of result.rows) {
+      const parsed = row.responses
+        ? (typeof row.responses === 'string' ? JSON.parse(row.responses) : row.responses)
+        : null;
+      if (!parsed) continue;
+      const isV2 = parsed.version === 2 || Array.isArray(parsed.completedSections);
+      if (!isV2) continue;
+
+      const sections = parsed.completedSections || [];
+
+      let training = null;
+      if (sections.includes('training') && parsed.training && Array.isArray(parsed.training.sessions)) {
+        training = {
+          sessions: parsed.training.sessions.map(s => {
+            const safe = {};
+            for (const k of Object.keys(s || {})) {
+              if (SAFE_TRAINING_KEYS.has(k)) safe[k] = s[k];
+            }
+            return safe;
+          }),
+        };
+      }
+
+      let nutrition = null;
+      if (sections.includes('nutrition') && parsed.nutrition) {
+        nutrition = {
+          breakfast: parsed.nutrition.breakfast || null,
+          lunch: parsed.nutrition.lunch || null,
+          dinner: parsed.nutrition.dinner || null,
+          snacks: parsed.nutrition.snacks || null,
+          drinks: parsed.nutrition.drinks || null,
+          healthScore: parsed.nutrition.healthScore ?? null,
+        };
+      }
+
+      let sleep = null;
+      if (sections.includes('sleep') && parsed.sleep) {
+        sleep = {
+          sleepTime: parsed.sleep.sleepTime || null,
+          wakeTime: parsed.sleep.wakeTime || null,
+        };
+      }
+
+      logs.push({
+        id: row.id,
+        entryDate: row.entry_date instanceof Date
+          ? row.entry_date.toISOString().split('T')[0]
+          : String(row.entry_date).split('T')[0],
+        completedSections: sections.filter(s => ['training', 'nutrition', 'sleep'].includes(s)),
+        training,
+        nutrition,
+        sleep,
+      });
+    }
+
+    res.json({ logs });
   } catch (err) {
     next(err);
   }

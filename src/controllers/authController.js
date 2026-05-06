@@ -70,6 +70,7 @@ function formatUserFields(user) {
     height: user.height != null ? Number(user.height) : null,
     weight: user.weight != null ? Number(user.weight) : null,
     hideHeightWeight: user.hide_height_weight || false,
+    hideLogs: user.hide_logs || false,
   };
 }
 
@@ -459,7 +460,7 @@ exports.getProfile = async (req, res, next) => {
 
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username, sport, height, weight, hideHeightWeight } = req.body;
+    const { mantra, fullName, age, country, gender, team, competitionLevel, position, primaryGoal, username, sport, height, weight, hideHeightWeight, hideLogs } = req.body;
 
     const fieldError = validateProfileFields({ fullName, age, country, gender, team, position, mantra, competitionLevel, primaryGoal, sport, username, height, weight });
     if (fieldError) {
@@ -492,10 +493,11 @@ exports.updateProfile = async (req, res, next) => {
       height: height,
       weight: weight,
       hide_height_weight: hideHeightWeight,
+      hide_logs: hideLogs,
     };
 
-    const colToBodyKey = { full_name: 'fullName', competition_level: 'competitionLevel', primary_goal: 'primaryGoal', hide_height_weight: 'hideHeightWeight' };
-    const numericOrBoolCols = new Set(['height', 'weight', 'hide_height_weight', 'age']);
+    const colToBodyKey = { full_name: 'fullName', competition_level: 'competitionLevel', primary_goal: 'primaryGoal', hide_height_weight: 'hideHeightWeight', hide_logs: 'hideLogs' };
+    const numericOrBoolCols = new Set(['height', 'weight', 'hide_height_weight', 'hide_logs', 'age']);
     for (const [col, val] of Object.entries(fieldMap)) {
       if (req.body.hasOwnProperty(colToBodyKey[col] || col)) {
         updates.push(`${col} = $${paramIdx}`);

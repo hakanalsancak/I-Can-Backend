@@ -12,6 +12,7 @@ router.get('/requests', friendController.getPendingRequests);
 router.get('/requests/sent', friendController.getSentRequests);
 router.get('/', friendController.getFriends);
 router.get('/profile/:id', friendController.getFriendProfile);
+router.get('/profile/:id/logs', friendController.getFriendLogs);
 
 router.post('/request', friendController.sendRequest);
 router.put('/request/:id', friendController.respondToRequest);
