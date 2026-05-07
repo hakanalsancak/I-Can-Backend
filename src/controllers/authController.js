@@ -22,7 +22,7 @@ async function updateTimezoneIfProvided(userId, tz) {
 
 function generateTokens(userId) {
   const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
-  const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
+  const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '30d' });
   return { accessToken, refreshToken };
 }
 
@@ -34,7 +34,7 @@ const MAX_REFRESH_TOKENS_PER_USER = 5;
 
 async function storeRefreshToken(userId, refreshToken) {
   const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   await query(
     'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
     [userId, tokenHash, expiresAt]
