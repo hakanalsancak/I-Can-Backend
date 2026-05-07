@@ -23,18 +23,19 @@ const parser = new Parser({
   },
 });
 
+// Positive signals: boost training/recovery/mindset content for the 'general' bucket.
+// Sport-specific feeds bypass scoring entirely (see processItems).
 const KEYWORD_HITS = [
   'training', 'technique', 'drill', 'program', 'workout', 'strength',
   'recovery', 'sleep', 'mobility', 'nutrition', 'protein',
   'mindset', 'focus', 'mental', 'mental performance',
   'periodization', 'conditioning', 'injury prevention',
 ];
-const KEYWORD_MISSES = [
-  'salary', 'contract', 'dating', 'gossip', 'wife', 'girlfriend',
-  'arrested', 'scandal', 'rumor', 'rumour', 'transfer', 'net worth',
-  'lifestyle', 'celebrity', 'fashion', 'style icon',
-];
-const TITLE_BLOCKLIST = /(transfer|rumou?r|girlfriend|wife|salary|net worth|arrested|scandal)/i;
+// Hard junk only. Anything more nuanced (lifestyle vs. legit sport news)
+// is the AI classifier's job — keyword matching can't tell "transfer rumor"
+// (drop) from "transfer window analysis" (keep).
+const KEYWORD_MISSES = ['gossip', 'tabloid', 'paparazzi'];
+const TITLE_BLOCKLIST = /(gossip|tabloid|paparazzi)/i;
 
 function preFilter(item, opts = {}) {
   const minBodyLen = opts.minBodyLen ?? 200;
@@ -146,11 +147,14 @@ Category definitions — pick the BEST single fit:
 - "training" = ONLY if it's primarily about workouts, drills, lifting programs, sets/reps, technique, periodization. Default away from training when the article fits another category.
 
 Drop (keep=false) when:
-- Pure entertainment / gossip / celebrity / lifestyle
-- Generic listicle ("Top 10 ...") with no actionable content
+- Pure tabloid / paparazzi / dating / family gossip about an athlete's private life
+- Generic listicle ("Top 10 ...") with no substance
 - Promotional / buying guide / product review
-- Not actionable for a serious athlete
-- About transfers, salaries, contracts, personal life`,
+- Fashion, "style icon", off-field lifestyle puff pieces
+
+Keep legitimate sport news — match results, trades, transfers, contract
+extensions, rule changes, injury updates, comeback stories. Those are the
+news an athlete reader expects. Use category="news" for them.`,
       },
       { role: 'user', content: userPrompt },
     ],
@@ -184,14 +188,16 @@ async function processItems(sport, allItems, opts = {}) {
   // Stage 1: hard filter
   const stage1 = allItems.filter(item => preFilter(item, { minBodyLen }));
 
-  // Stage 2: keyword score, drop dup URLs we already stored
+  // Stage 2: dedup by URL hash. Keyword score gates the 'general' bucket toward
+  // training-shaped content; sport-specific feeds (forcedCategory set) skip the
+  // score gate entirely — the AI classifier decides what's worth keeping.
   const candidates = [];
   for (const item of stage1) {
     if (!item.link) continue;
     const hash = hashUrl(item.link);
     if (await existsByHash(hash)) continue;
     const s = score(item);
-    if (s < minScore) continue;
+    if (!forcedCategory && s < minScore) continue;
     candidates.push({ ...item, hash, score: s });
   }
 
