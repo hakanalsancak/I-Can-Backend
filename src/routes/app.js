@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-const MIN_VERSION = process.env.MIN_APP_VERSION || '1.2.3';
+const MIN_VERSION = process.env.MIN_APP_VERSION || '1.4.1';
 const MAINTENANCE_MODE = process.env.MAINTENANCE_MODE === 'true';
 const FEEDBACK_CAMPAIGN = (process.env.FEEDBACK_CAMPAIGN || '').trim() || null;
 

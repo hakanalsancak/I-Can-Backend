@@ -15,6 +15,8 @@ function formatMessage(row) {
     attachmentType: row.attachment_type || null,
     attachmentRef: row.attachment_ref || null,
     createdAt: row.created_at,
+    deliveredAt: row.delivered_at || null,
+    readAt: row.read_at || null,
   };
 }
 
@@ -201,8 +203,25 @@ exports.getMessages = async (req, res, next) => {
       cursorTs = cursor;
     }
 
+    // Flip any of the OTHER side's queued messages from "sent" (one tick) to
+    // "delivered" (two gray ticks) the moment this user pulls a page. Skipped
+    // when paginating older history with a cursor — those are already
+    // delivered or older, no need to write.
+    if (!cursorTs) {
+      await query(
+        `UPDATE dm_messages
+            SET delivered_at = NOW()
+          WHERE conversation_id = $1
+            AND sender_id <> $2
+            AND deleted_at IS NULL
+            AND delivered_at IS NULL`,
+        [id, req.userId]
+      );
+    }
+
     const baseSql = `
-      SELECT id, conversation_id, sender_id, body, attachment_type, attachment_ref, created_at
+      SELECT id, conversation_id, sender_id, body, attachment_type, attachment_ref,
+             created_at, delivered_at, read_at
         FROM dm_messages
        WHERE conversation_id = $1 AND deleted_at IS NULL`;
     let result;
@@ -459,6 +478,19 @@ exports.markRead = async (req, res, next) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
+    // Stamp every incoming message with delivered_at + read_at so the sender's
+    // ticks transition from gray to colored. COALESCE preserves the original
+    // delivery moment if it was already set when the recipient first fetched.
+    await query(
+      `UPDATE dm_messages
+          SET delivered_at = COALESCE(delivered_at, NOW()),
+              read_at      = COALESCE(read_at, NOW())
+        WHERE conversation_id = $1
+          AND sender_id <> $2
+          AND deleted_at IS NULL
+          AND read_at IS NULL`,
+      [id, req.userId]
+    );
     res.json({ lastReadAt: result.rows[0].last_read_at });
   } catch (err) {
     next(err);
