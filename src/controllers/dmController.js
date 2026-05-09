@@ -68,6 +68,23 @@ async function areFriends(a, b) {
 // GET /api/community/messages/conversations
 exports.listConversations = async (req, res, next) => {
   try {
+    // Stamp every undelivered incoming message across the user's threads as
+    // "delivered" the moment they pull their inbox. This is what flips a
+    // sender's tick from one gray (sent) to two gray (delivered) without
+    // requiring the recipient to actually open the chat — mirrors WhatsApp's
+    // "delivered to recipient's device" semantics.
+    await query(
+      `UPDATE dm_messages
+          SET delivered_at = NOW()
+        WHERE delivered_at IS NULL
+          AND deleted_at IS NULL
+          AND sender_id <> $1
+          AND conversation_id IN (
+            SELECT conversation_id FROM dm_conversation_members WHERE user_id = $1
+          )`,
+      [req.userId]
+    );
+
     // 1:1 conversations: find the OTHER member, plus latest message and unread count
     const result = await query(
       `WITH my_convs AS (
