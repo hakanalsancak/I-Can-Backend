@@ -42,11 +42,18 @@ const SOURCES = {
   cricket: [
     { name: 'ESPN Cricinfo', url: 'https://www.espncricinfo.com/rss/content/story/feeds/0.xml' },
   ],
+  volleyball: [
+    { name: 'FIVB News', url: 'https://www.fivb.com/rss/news' },
+    { name: 'Volleyball Magazine', url: 'https://volleyballmag.com/feed/' },
+  ],
+  baseball: [
+    { name: 'ESPN MLB', url: 'https://www.espn.com/espn/rss/mlb/news' },
+  ],
 };
 
 const GENERAL_KEY = 'general';
 const NON_SPORT_KEYS = new Set(['general', 'recovery', 'mindset', 'news']);
-const SUPPORTED_SPORTS = ['basketball', 'tennis', 'boxing', 'cricket', 'soccer', 'football'];
+const SUPPORTED_SPORTS = ['basketball', 'tennis', 'boxing', 'cricket', 'soccer', 'football', 'volleyball', 'baseball'];
 
 function sportSpecificSources(sport) {
   const key = (sport || '').toLowerCase().trim();

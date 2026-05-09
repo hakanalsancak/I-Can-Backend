@@ -13,6 +13,6 @@ const ROTATING_QUESTIONS = [
   { id: 10, text: 'How satisfied are you with today\'s performance?', type: 'slider' },
 ];
 
-const SPORTS = ['soccer', 'basketball', 'tennis', 'football', 'boxing', 'cricket'];
+const SPORTS = ['soccer', 'basketball', 'tennis', 'football', 'boxing', 'cricket', 'volleyball', 'baseball'];
 
 module.exports = { ROTATING_QUESTIONS, SPORTS, query };

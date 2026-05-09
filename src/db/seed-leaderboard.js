@@ -191,6 +191,21 @@ const fakeAthletes = [
   { name: 'Raphaël Simon', country: 'FR', sport: 'basketball', streak: 30, longest: 33 },
   { name: 'Jade Lefèvre', country: 'FR', sport: 'soccer', streak: 24, longest: 27 },
   { name: 'Bastien Martin', country: 'FR', sport: 'tennis', streak: 17, longest: 20 },
+
+  // Volleyball + Baseball additions
+  { name: 'Hana Suzuki', country: 'JP', sport: 'volleyball', streak: 192, longest: 192 },
+  { name: 'Diego Ramos', country: 'BR', sport: 'volleyball', streak: 158, longest: 165 },
+  { name: 'Ana Petrović', country: 'RS', sport: 'volleyball', streak: 134, longest: 134 },
+  { name: 'Gabriela Costa', country: 'IT', sport: 'volleyball', streak: 102, longest: 110 },
+  { name: 'Mert Yıldız', country: 'TR', sport: 'volleyball', streak: 76, longest: 80 },
+  { name: 'Lukas Becker', country: 'DE', sport: 'volleyball', streak: 41, longest: 50 },
+
+  { name: 'Hiroshi Sato', country: 'JP', sport: 'baseball', streak: 205, longest: 205 },
+  { name: 'Brandon Cole', country: 'US', sport: 'baseball', streak: 167, longest: 175 },
+  { name: 'Min-jun Park', country: 'KR', sport: 'baseball', streak: 132, longest: 140 },
+  { name: 'Rafael Cruz', country: 'DO', sport: 'baseball', streak: 110, longest: 110 },
+  { name: 'Hunter Bailey', country: 'US', sport: 'baseball', streak: 84, longest: 95 },
+  { name: 'Pedro Vásquez', country: 'VE', sport: 'baseball', streak: 47, longest: 55 },
 ];
 
 async function seed() {
