@@ -17,6 +17,14 @@ function formatMessage(row) {
     createdAt: row.created_at,
     deliveredAt: row.delivered_at || null,
     readAt: row.read_at || null,
+    // Denormalized reply preview joined in by the SELECT — null when this
+    // message isn't a reply, or when the original was hard-deleted.
+    replyTo: row.reply_to_id ? {
+      id: row.reply_to_id,
+      senderId: row.reply_to_sender_id,
+      body: row.reply_to_body || null,
+      attachmentType: row.reply_to_attachment_type || null,
+    } : null,
   };
 }
 
@@ -239,19 +247,24 @@ exports.getMessages = async (req, res, next) => {
     }
 
     const baseSql = `
-      SELECT id, conversation_id, sender_id, body, attachment_type, attachment_ref,
-             created_at, delivered_at, read_at
-        FROM dm_messages
-       WHERE conversation_id = $1 AND deleted_at IS NULL`;
+      SELECT m.id, m.conversation_id, m.sender_id, m.body, m.attachment_type, m.attachment_ref,
+             m.created_at, m.delivered_at, m.read_at,
+             r.id              AS reply_to_id,
+             r.sender_id       AS reply_to_sender_id,
+             r.body            AS reply_to_body,
+             r.attachment_type AS reply_to_attachment_type
+        FROM dm_messages m
+        LEFT JOIN dm_messages r ON r.id = m.reply_to_message_id AND r.deleted_at IS NULL
+       WHERE m.conversation_id = $1 AND m.deleted_at IS NULL`;
     let result;
     if (cursorTs) {
       result = await query(
-        `${baseSql} AND created_at < $2::timestamptz ORDER BY created_at DESC LIMIT $3`,
+        `${baseSql} AND m.created_at < $2::timestamptz ORDER BY m.created_at DESC LIMIT $3`,
         [id, cursorTs, limit]
       );
     } else {
       result = await query(
-        `${baseSql} ORDER BY created_at DESC LIMIT $2`,
+        `${baseSql} ORDER BY m.created_at DESC LIMIT $2`,
         [id, limit]
       );
     }
@@ -290,7 +303,7 @@ exports.sendMessage = async (req, res, next) => {
     const { id } = req.params;
     if (!UUID.test(id)) return res.status(400).json({ error: 'Invalid id' });
 
-    const { body, attachmentType, attachmentRef } = req.body || {};
+    const { body, attachmentType, attachmentRef, replyToMessageId } = req.body || {};
 
     let trimmed = '';
     if (body !== undefined && body !== null) {
@@ -328,6 +341,27 @@ exports.sendMessage = async (req, res, next) => {
       return res.status(400).json({ error: 'Message must contain text or an attachment' });
     }
 
+    // Reply target: optional. If provided, must be a UUID, must reference an
+    // existing non-deleted message in the same conversation. Cross-thread
+    // replies are rejected so users can't quote a message from a chat they
+    // don't belong to.
+    let cleanReplyToId = null;
+    if (replyToMessageId !== undefined && replyToMessageId !== null) {
+      if (typeof replyToMessageId !== 'string' || !UUID.test(replyToMessageId)) {
+        return res.status(400).json({ error: 'Invalid replyToMessageId' });
+      }
+      const replyTarget = await query(
+        `SELECT 1 FROM dm_messages
+          WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL
+          LIMIT 1`,
+        [replyToMessageId, id]
+      );
+      if (replyTarget.rows.length === 0) {
+        return res.status(404).json({ error: 'Reply target not found' });
+      }
+      cleanReplyToId = replyToMessageId;
+    }
+
     const member = await query(
       `SELECT 1 FROM dm_conversation_members WHERE conversation_id = $1 AND user_id = $2 LIMIT 1`,
       [id, req.userId]
@@ -350,15 +384,27 @@ exports.sendMessage = async (req, res, next) => {
 
     await client.query('BEGIN');
     const inserted = await client.query(
-      `INSERT INTO dm_messages (conversation_id, sender_id, body, attachment_type, attachment_ref)
-       VALUES ($1, $2, $3, $4, $5::jsonb)
-       RETURNING id, conversation_id, sender_id, body, attachment_type, attachment_ref, created_at`,
+      `WITH new_msg AS (
+         INSERT INTO dm_messages
+             (conversation_id, sender_id, body, attachment_type, attachment_ref, reply_to_message_id)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+         RETURNING id, conversation_id, sender_id, body, attachment_type, attachment_ref,
+                   created_at, delivered_at, read_at, reply_to_message_id
+       )
+       SELECT m.*,
+              r.id              AS reply_to_id,
+              r.sender_id       AS reply_to_sender_id,
+              r.body            AS reply_to_body,
+              r.attachment_type AS reply_to_attachment_type
+         FROM new_msg m
+         LEFT JOIN dm_messages r ON r.id = m.reply_to_message_id AND r.deleted_at IS NULL`,
       [
         id,
         req.userId,
         trimmed.length > 0 ? trimmed : null,
         cleanAttachmentType,
         cleanAttachmentRef ? JSON.stringify(cleanAttachmentRef) : null,
+        cleanReplyToId,
       ]
     );
     await client.query(
