@@ -5,6 +5,24 @@ const { query } = require('../config/database');
 const userMetaCache = new Map();
 const META_TTL_MS = 60_000;
 
+// Presence heartbeat. We want every authenticated request to refresh the
+// user's last_seen_at, but writing on every call would be a hot path on Neon.
+// In-process debounce: only flush to Postgres when the last write for this
+// user was more than PRESENCE_WRITE_INTERVAL_MS ago. Fire-and-forget so the
+// request itself isn't blocked on the UPDATE.
+const lastPresenceWrite = new Map();
+const PRESENCE_WRITE_INTERVAL_MS = 30_000;
+
+function bumpLastSeen(userId) {
+  if (!userId) return;
+  const now = Date.now();
+  const prev = lastPresenceWrite.get(userId) || 0;
+  if (now - prev < PRESENCE_WRITE_INTERVAL_MS) return;
+  lastPresenceWrite.set(userId, now);
+  query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [userId])
+    .catch(err => console.error('presence bump failed:', err.message));
+}
+
 async function fetchUserMeta(userId) {
   const cached = userMetaCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) return cached.data;
@@ -35,6 +53,7 @@ const authenticate = async (req, res, next) => {
   }
 
   req.userId = decoded.userId;
+  bumpLastSeen(decoded.userId);
 
   // Block suspended users from any authenticated endpoint.
   try {

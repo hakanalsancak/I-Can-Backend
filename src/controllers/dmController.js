@@ -35,6 +35,7 @@ function formatConversation(row, viewerId) {
       username: row.other_username || null,
       photoUrl: row.other_photo_url || null,
       sport: row.other_sport || null,
+      lastSeenAt: row.other_last_seen_at || null,
     } : null,
     lastMessage: row.last_message_body
       ? {
@@ -102,6 +103,7 @@ exports.listConversations = async (req, res, next) => {
               u.username           AS other_username,
               u.profile_photo_url  AS other_photo_url,
               u.sport              AS other_sport,
+              u.last_seen_at       AS other_last_seen_at,
               lm.body              AS last_message_body,
               lm.sender_id         AS last_message_sender_id,
               lm.created_at        AS last_message_created_at,
@@ -256,7 +258,23 @@ exports.getMessages = async (req, res, next) => {
 
     const items = result.rows.map(formatMessage);
     const nextCursor = items.length === limit ? items[items.length - 1].createdAt : null;
-    res.json({ items, nextCursor });
+
+    // Include the other party's presence so the chat header can refresh
+    // "Online" / "Last seen…" off the same poll that drives messages.
+    let otherLastSeenAt = null;
+    const presence = await query(
+      `SELECT u.last_seen_at
+         FROM dm_conversation_members m
+         JOIN users u ON u.id = m.user_id
+        WHERE m.conversation_id = $1 AND m.user_id <> $2
+        LIMIT 1`,
+      [id, req.userId]
+    );
+    if (presence.rows.length > 0) {
+      otherLastSeenAt = presence.rows[0].last_seen_at || null;
+    }
+
+    res.json({ items, nextCursor, otherLastSeenAt });
   } catch (err) {
     next(err);
   }
