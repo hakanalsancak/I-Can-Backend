@@ -1,7 +1,8 @@
 const { query } = require('../config/database');
 const { ingestForSport } = require('../services/sportFeed/ingest');
 
-const VALID_CATEGORIES = ['training', 'recovery', 'mindset', 'news'];
+// Only news is surfaced to the client; older training/recovery/mindset rows are
+// ignored at query time.
 
 function formatArticle(row) {
   return {
@@ -18,7 +19,7 @@ function formatArticle(row) {
   };
 }
 
-// GET /api/community/sport-feed?cursor=&limit=&category=
+// GET /api/community/sport-feed?cursor=&limit=
 exports.getSportFeed = async (req, res, next) => {
   try {
     const limitRaw = parseInt(req.query.limit, 10);
@@ -27,7 +28,7 @@ exports.getSportFeed = async (req, res, next) => {
       : 20;
 
     const ISO_TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
-    const { cursor, category } = req.query;
+    const { cursor } = req.query;
     let cursorTs = null;
     if (cursor) {
       if (typeof cursor !== 'string' || !ISO_TS.test(cursor)) {
@@ -35,16 +36,12 @@ exports.getSportFeed = async (req, res, next) => {
       }
       cursorTs = cursor;
     }
-    if (category && !VALID_CATEGORIES.includes(category)) {
-      return res.status(400).json({ error: 'Invalid category' });
-    }
 
     const userRow = await query('SELECT sport FROM users WHERE id = $1', [req.userId]);
     const userSport = userRow.rows[0]?.sport || null;
 
     const params = [];
-    const conds = [];
-    // Always show 'general' (cross-sport) articles plus the user's sport
+    const conds = ["a.category = 'news'"];
     if (userSport) {
       params.push(userSport, 'general');
       conds.push(`a.sport IN ($${params.length - 1}, $${params.length})`);
@@ -52,17 +49,13 @@ exports.getSportFeed = async (req, res, next) => {
       params.push('general');
       conds.push(`a.sport = $${params.length}`);
     }
-    if (category) {
-      params.push(category);
-      conds.push(`a.category = $${params.length}`);
-    }
     if (cursorTs) {
       params.push(cursorTs);
       conds.push(`a.published_at < $${params.length}::timestamptz`);
     }
     params.push(limit);
 
-    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const where = `WHERE ${conds.join(' AND ')}`;
     const sql = `
       SELECT a.id, a.sport, a.category, a.title, a.summary, a.source_name,
              a.source_url, a.image_url, a.relevance_score, a.published_at

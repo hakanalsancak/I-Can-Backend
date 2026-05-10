@@ -6,7 +6,7 @@ const {
   sourcesForSport,
   allSources,
   sportSpecificSources,
-  generalSources,
+  crossSportNewsSources,
   GENERAL_KEY,
   SUPPORTED_SPORTS,
 } = require('./sources');
@@ -23,13 +23,126 @@ const parser = new Parser({
   },
 });
 
-// Positive signals: boost training/recovery/mindset content for the 'general' bucket.
-// Sport-specific feeds bypass scoring entirely (see processItems).
+// Positive signals: boost training/recovery/mindset content for the 'general' bucket
+// AND rank sport-specific items (news/transfers/injuries/results float to the top of
+// the 30-item slice the AI classifier sees). The score gate is bypassed for
+// forcedCategory feeds (see processItems), but sorting still uses score.
 const KEYWORD_HITS = [
-  'training', 'technique', 'drill', 'program', 'workout', 'strength',
-  'recovery', 'sleep', 'mobility', 'nutrition', 'protein',
-  'mindset', 'focus', 'mental', 'mental performance',
-  'periodization', 'conditioning', 'injury prevention',
+  // Training / technique
+  'training', 'trains', 'trained', 'technique', 'technical', 'drill', 'drills',
+  'program', 'programme', 'workout', 'workouts', 'session', 'practice', 'practiced',
+  'strength', 'strong', 'powerful', 'power', 'speed', 'agility', 'explosive',
+  'cardio', 'endurance', 'stamina', 'aerobic', 'anaerobic', 'hiit', 'tempo',
+  'periodization', 'periodisation', 'conditioning', 'plyometric', 'plyometrics',
+  'mobility', 'flexibility', 'stretching', 'warm-up', 'warmup', 'cool-down',
+  'form', 'biomechanics', 'mechanics', 'fundamentals',
+
+  // Recovery / nutrition / sleep
+  'recovery', 'recover', 'rest', 'rested', 'sleep', 'nap', 'fatigue', 'deload',
+  'nutrition', 'protein', 'carbs', 'carbohydrate', 'hydration', 'hydrate',
+  'electrolytes', 'creatine', 'supplement', 'supplements', 'diet', 'meal',
+  'soreness', 'doms', 'massage', 'foam roller', 'ice bath', 'cold plunge', 'sauna',
+  'rehab', 'rehabilitation', 'physio', 'physiotherapy', 'injury prevention',
+
+  // Mindset / mental
+  'mindset', 'focus', 'focused', 'mental', 'mental performance', 'mental health',
+  'motivation', 'discipline', 'confidence', 'anxiety', 'pressure', 'composure',
+  'visualization', 'visualisation', 'meditation', 'mindfulness', 'habit', 'habits',
+  'resilience', 'grit', 'mentality', 'psyche', 'flow state',
+
+  // Competition / results
+  'win', 'wins', 'won', 'victory', 'beat', 'defeat', 'defeated', 'lose', 'loss',
+  'comeback', 'upset', 'thriller', 'walk-off', 'overtime', 'extra time',
+  'match', 'matches', 'matchup', 'game', 'fixture', 'clash', 'duel', 'showdown',
+  'championship', 'champion', 'champions', 'tournament', 'cup', 'final', 'finals',
+  'semifinal', 'semi-final', 'quarterfinal', 'quarter-final', 'playoff', 'playoffs',
+  'series', 'league', 'season', 'opener', 'debut', 'derby', 'rivalry',
+  'standings', 'ranking', 'ranked', 'ranks', 'top-ranked', 'world number',
+  'medal', 'gold', 'silver', 'bronze', 'olympics', 'olympic', 'world cup',
+
+  // Player movement / contracts
+  'trade', 'traded', 'trades', 'transfer', 'transfers', 'sign', 'signs', 'signed',
+  'signing', 'contract', 'contracts', 'extension', 'extends', 'extended', 'deal',
+  'agreement', 'free agent', 'free agency', 'draft', 'drafted', 'pick', 'rookie',
+  'retire', 'retires', 'retirement', 'unretire', 'release', 'released', 'waived',
+  'cut', 'acquire', 'acquired', 'acquisition', 'loan', 'loaned', 'rumor', 'rumour',
+  'reportedly', 'agrees', 'agreed', 'joins', 'leaving',
+
+  // Injury / status
+  'injury', 'injured', 'injuries', 'hurt', 'sidelined', 'questionable', 'doubtful',
+  'probable', 'available', 'unavailable', 'ruled out', 'cleared', 'returned',
+  'returns', 'comeback', 'surgery', 'mri', 'scan', 'sprain', 'strain', 'tear',
+  'fracture', 'broken', 'concussion', 'hamstring', 'quad', 'knee', 'ankle',
+  'shoulder', 'elbow', 'wrist', 'back', 'acl', 'mcl', 'achilles', 'meniscus',
+  'rotator cuff', 'ucl', 'tommy john', 'day-to-day', 'il', 'injured list',
+
+  // Coaching / management
+  'coach', 'coaches', 'coached', 'coaching', 'head coach', 'assistant coach',
+  'manager', 'managerial', 'hire', 'hired', 'fired', 'sacked', 'dismissed',
+  'replaced', 'appointed', 'appointment', 'general manager', 'gm', 'front office',
+  'owner', 'staff', 'system',
+
+  // Records / awards
+  'record', 'record-breaking', 'milestone', 'career-high', 'career best',
+  'all-time', 'hall of fame', 'hof', 'mvp', 'rookie of the year',
+  'player of the week', 'player of the month', 'all-star', 'all star',
+
+  // Roster / team
+  'roster', 'lineup', 'starting lineup', 'starter', 'bench', 'squad', 'club',
+  'franchise', 'jersey', 'captain', 'co-captain', 'leader',
+
+  // Basketball
+  'nba', 'dunk', 'three-pointer', 'three pointer', '3-point', 'triple-double',
+  'double-double', 'rebound', 'assist', 'block', 'steal', 'crossover', 'isolation',
+  'pick and roll', 'pick-and-roll', 'jumper', 'layup', 'free throw', 'paint',
+
+  // Football (NFL)
+  'nfl', 'quarterback', 'qb', 'touchdown', 'td', 'interception', 'sack',
+  'rushing', 'passing', 'receiving', 'reception', 'snap', 'fumble', 'red zone',
+  'two-minute', 'super bowl', 'pro bowl', 'combine', 'minicamp', 'ota',
+
+  // Soccer / football (world)
+  'premier league', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'mls',
+  'champions league', 'europa league', 'uefa', 'fifa', 'goal', 'goals',
+  'goalkeeper', 'keeper', 'striker', 'midfielder', 'defender', 'penalty',
+  'free kick', 'corner', 'offside', 'var', 'clean sheet', 'hat-trick', 'hat trick',
+  'derby', 'el clasico', 'manchester', 'madrid', 'barcelona', 'liverpool',
+  'arsenal', 'chelsea',
+
+  // Boxing
+  'knockout', 'ko', 'tko', 'technical knockout', 'decision', 'unanimous',
+  'majority decision', 'split decision', 'draw', 'round', 'rounds', 'bout',
+  'fight', 'fights', 'fighter', 'undefeated', 'unbeaten', 'undercard', 'main event',
+  'title shot', 'title fight', 'belt', 'heavyweight', 'cruiserweight',
+  'middleweight', 'welterweight', 'lightweight', 'featherweight', 'bantamweight',
+  'pound-for-pound', 'pound for pound', 'sparring', 'jab', 'cross', 'uppercut',
+  'wbc', 'wba', 'ibf', 'wbo',
+
+  // Tennis
+  'grand slam', 'australian open', 'french open', 'roland garros', 'wimbledon',
+  'us open', 'atp', 'wta', 'ace', 'aces', 'serve', 'break point', 'tiebreak',
+  'tie-break', 'tiebreaker', 'set point', 'match point', 'forehand', 'backhand',
+  'volley', 'baseline', 'doubles', 'singles', 'seed', 'seeded', 'unseeded',
+  'qualifier', 'masters 1000', 'davis cup',
+
+  // Cricket
+  'test match', 'odi', 't20', 'ipl', 'wicket', 'wickets', 'batting', 'bowler',
+  'bowling', 'spinner', 'pacer', 'all-rounder', 'all rounder', 'century',
+  'half-century', 'duck', 'lbw', 'caught', 'stumped', 'innings', 'over', 'overs',
+  'boundary', 'six', 'sixes', 'four', 'fours', 'crease', 'pitch', 'ashes',
+  'world cup',
+
+  // Volleyball
+  'spike', 'block', 'dig', 'set', 'setter', 'libero', 'outside hitter',
+  'middle blocker', 'opposite', 'ace', 'serve', 'fivb', 'volleyball nations league',
+  'vnl', 'beach volleyball',
+
+  // Baseball
+  'mlb', 'home run', 'homer', 'rbi', 'era', 'whip', 'strikeout', 'strikeouts',
+  'no-hitter', 'perfect game', 'walk-off', 'grand slam', 'shutout', 'bullpen',
+  'closer', 'starter', 'pitcher', 'pitching', 'batter', 'batting', 'slugging',
+  'on-base', 'ops', 'dugout', 'mound', 'inning', 'world series', 'all-star game',
+  'spring training', 'opening day',
 ];
 // Hard junk only. Anything more nuanced (lifestyle vs. legit sport news)
 // is the AI classifier's job — keyword matching can't tell "transfer rumor"
@@ -271,37 +384,44 @@ async function processItems(sport, allItems, opts = {}) {
   return { fetched: allItems.length, kept: kept.length };
 }
 
-// Public: ingest both general (cross-sport) feeds and the sport-specific ones.
-// Used by the manual seed endpoint for a single user's sport.
+// Public: ingest cross-sport news + this user's sport. Used by the manual seed
+// endpoint. Everything is forced into the 'news' category.
 async function ingestForSport(sport) {
-  const general = await ingestFromSources(GENERAL_KEY, generalSources());
+  const cross = await ingestFromSources(
+    GENERAL_KEY,
+    crossSportNewsSources(),
+    { minScore: 0, minBodyLen: 80, minRelevance: 40, forcedCategory: 'news' }
+  );
   const specific = await ingestFromSources(
     sport,
     sportSpecificSources(sport),
     { minScore: 0, minBodyLen: 80, minRelevance: 40, forcedCategory: 'news' }
   );
   return {
-    general,
+    general: cross,
     sport: specific,
-    fetched: general.fetched + specific.fetched,
-    kept: general.kept + specific.kept,
+    fetched: cross.fetched + specific.fetched,
+    kept: cross.kept + specific.kept,
   };
 }
 
 async function ingestAllSports() {
   const summary = {};
 
-  // Pass 1: general feeds once — articles tagged sport='general'
+  // Pass 1: cross-sport news headlines (tagged sport='general', category='news').
   try {
-    summary[GENERAL_KEY] = await ingestFromSources(GENERAL_KEY, generalSources());
+    summary[GENERAL_KEY] = await ingestFromSources(
+      GENERAL_KEY,
+      crossSportNewsSources(),
+      { minScore: 0, minBodyLen: 80, minRelevance: 40, forcedCategory: 'news' }
+    );
   } catch (err) {
     console.error('General ingest failed:', err.message);
     summary[GENERAL_KEY] = { error: err.message };
   }
 
-  // Pass 2: sport-specific feeds per supported sport.
-  // Use minScore: 0 because ESPN sport feeds skew news/results, not training keywords;
-  // the AI classifier still drops gossip and decides relevance.
+  // Pass 2: sport-specific feeds per supported sport. AI classifier drops gossip
+  // and decides relevance; everything kept is category='news'.
   for (const sport of SUPPORTED_SPORTS) {
     try {
       summary[sport] = await ingestFromSources(
