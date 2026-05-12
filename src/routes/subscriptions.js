@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
-const { webhookLimiter } = require('../middleware/rateLimiter');
+const { webhookLimiter, codeClaimLimiter } = require('../middleware/rateLimiter');
 const subscriptionController = require('../controllers/subscriptionController');
+const influencerController = require('../controllers/influencerController');
 
 // Apple Server-to-Server Notification V2 (no auth — called by Apple directly)
 // Apple S2S payloads are small JWS strings — 256 KB is generous
@@ -12,5 +13,6 @@ router.use(authenticate);
 
 router.get('/status', subscriptionController.getStatus);
 router.post('/verify', subscriptionController.verifyReceipt);
+router.post('/claim-code', codeClaimLimiter, influencerController.claimCode);
 
 module.exports = router;

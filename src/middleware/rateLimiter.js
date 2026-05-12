@@ -32,4 +32,13 @@ const webhookLimiter = rateLimit({
   message: { error: 'Too many requests' },
 });
 
-module.exports = { generalLimiter, authLimiter, aiLimiter, webhookLimiter };
+// Prevents brute-force enumeration of valid promo codes.
+const codeClaimLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many code attempts, please try again later' },
+});
+
+module.exports = { generalLimiter, authLimiter, aiLimiter, webhookLimiter, codeClaimLimiter };
