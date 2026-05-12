@@ -23,6 +23,11 @@ const parser = new Parser({
   },
 });
 
+// Hard cap on the raw RSS payload we'll buffer for a single source. Without this
+// a misbehaving feed (HTML login page, infinite redirect, multi-MB archive) can
+// balloon the heap and OOM the process.
+const MAX_FEED_BYTES = 2 * 1024 * 1024; // 2 MB
+
 // Positive signals: boost training/recovery/mindset content for the 'general' bucket
 // AND rank sport-specific items (news/transfers/injuries/results float to the top of
 // the 30-item slice the AI classifier sees). The score gate is bypassed for
@@ -175,9 +180,43 @@ function hashUrl(url) {
   return crypto.createHash('sha256').update(url).digest('hex');
 }
 
+async function fetchFeedXml(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: { 'user-agent': 'ICanBot/1.0 (+rss)' },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    if (ct && !/(xml|rss|atom|text)/.test(ct)) {
+      throw new Error(`unexpected content-type: ${ct}`);
+    }
+    const reader = res.body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_FEED_BYTES) {
+        try { await reader.cancel(); } catch (_) { /* ignore */ }
+        throw new Error(`feed exceeds ${MAX_FEED_BYTES} bytes`);
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchSource(source) {
   try {
-    const feed = await parser.parseURL(source.url);
+    const xml = await fetchFeedXml(source.url);
+    const feed = await parser.parseString(xml);
     return (feed.items || []).map(it => ({
       sourceName: source.name,
       title: (it.title || '').trim(),

@@ -219,22 +219,26 @@ async function generateReport(userId, reportType, periodStart, periodEnd) {
   const timeoutMs = { weekly: 60000, monthly: 90000 };
   const maxTokens = tokenLimits[reportType] || 2400;
 
-  const aiPromise = getClient().chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.7,
-    max_tokens: maxTokens,
-  });
-
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`OpenAI report generation timed out after ${(timeoutMs[reportType] || 60000) / 1000}s`)), timeoutMs[reportType] || 60000)
-  );
-
-  const completion = await Promise.race([aiPromise, timeoutPromise]);
+  const ms = timeoutMs[reportType] || 60000;
+  let timer;
+  const completion = await Promise.race([
+    getClient().chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.7,
+      max_tokens: maxTokens,
+    }),
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`OpenAI report generation timed out after ${ms / 1000}s`)),
+        ms,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
 
   let reportContent;
   try {

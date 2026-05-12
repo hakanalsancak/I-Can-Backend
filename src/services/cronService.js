@@ -111,10 +111,15 @@ async function processUserBatch(users, reportType, periodStart, periodEnd, minEn
   const CONCURRENCY = 20;
   const PER_USER_TIMEOUT = 60000;
 
-  const withTimeout = (promise, ms) => Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Report generation timed out')), ms)),
-  ]);
+  const withTimeout = (promise, ms) => {
+    let timer;
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Report generation timed out')), ms);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  };
 
   // Process users in parallel batches with per-user timeout
   for (let i = 0; i < users.length; i += CONCURRENCY) {
@@ -264,8 +269,10 @@ function initCronJobs() {
   const { sendPush, initProvider } = require('../config/apns');
   initProvider();
 
-  // Run catch-up on startup (delayed 10s to let DB connections settle)
-  setTimeout(() => catchUpMissedReports().catch(err => console.error('Catch-up error:', err.message)), 10000);
+  // Run catch-up on startup (delayed 60s to let DB connections settle and to
+  // avoid re-OOMing during a crash-loop — if the heavy catch-up itself OOMed,
+  // a 10s delay meant every restart triggered the same fatal job again).
+  setTimeout(() => catchUpMissedReports().catch(err => console.error('Catch-up error:', err.message)), 60000);
 
   // Timezone-aware report generation — runs every hour, generates reports
   // for users whose local time just hit midnight on the relevant day.
