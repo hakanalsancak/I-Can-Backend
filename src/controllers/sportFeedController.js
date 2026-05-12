@@ -42,13 +42,11 @@ exports.getSportFeed = async (req, res, next) => {
 
     const params = [];
     const conds = ["a.category = 'news'"];
-    if (userSport) {
-      params.push(userSport, 'general');
-      conds.push(`a.sport IN ($${params.length - 1}, $${params.length})`);
-    } else {
-      params.push('general');
-      conds.push(`a.sport = $${params.length}`);
-    }
+    // Strictly scope news to the user's sport — a basketball player should
+    // only see basketball news, not cross-sport 'general' headlines. Users
+    // with no sport set fall back to 'general' so the feed isn't empty.
+    params.push(userSport || 'general');
+    conds.push(`a.sport = $${params.length}`);
     if (cursorTs) {
       params.push(cursorTs);
       conds.push(`a.published_at < $${params.length}::timestamptz`);
