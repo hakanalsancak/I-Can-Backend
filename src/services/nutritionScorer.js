@@ -26,7 +26,11 @@ CRITICAL FACTORS:
 - No vegetables or protein in any meal = penalty
 - All meals being unhealthy = score should be under 20
 - Breakfast is important for athletes - skipping or junk breakfast = penalty
-- Water/hydration = bonus
+- HYDRATION MATTERS: An athlete should drink ~2.5-3.5L (85-120 fl oz) of water per day.
+  * 0 or unlogged water = penalty (-5 to -10)
+  * <1L (~34 fl oz) = mild dehydration penalty (-3 to -5)
+  * 2-3L (~68-100 fl oz) = solid baseline, neutral-to-small bonus
+  * 3L+ (~100+ fl oz) = strong hydration bonus (+5 to +8)
 - Lean protein (chicken, fish, eggs) = bonus
 - Vegetables and fruits = bonus
 
@@ -53,9 +57,34 @@ function buildUserPrompt(nutrition) {
   if (nutrition.drinks && nutrition.drinks.trim()) {
     parts.push(`Drinks: ${nutrition.drinks.trim()}`);
   }
+  const waterLine = formatWater(nutrition);
+  if (waterLine) {
+    parts.push(`Water: ${waterLine}`);
+  } else {
+    parts.push('Water: not logged');
+  }
 
   if (parts.length === 0) return null;
   return `Rate this athlete's daily nutrition:\n${parts.join('\n')}`;
+}
+
+function formatWater(nutrition) {
+  const amount = Number(nutrition.waterAmount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const unit = (typeof nutrition.waterUnit === 'string' && nutrition.waterUnit) ? nutrition.waterUnit : 'L';
+  const ml = toMilliliters(amount, unit);
+  if (ml === null) return `${amount}${unit}`;
+  return `${amount}${unit} (~${Math.round(ml)}mL)`;
+}
+
+function toMilliliters(amount, unit) {
+  switch (unit) {
+    case 'L': return amount * 1000;
+    case 'mL': return amount;
+    case 'fl oz': return amount * 29.5735;
+    case 'cups': return amount * 236.588;
+    default: return null;
+  }
 }
 
 /**
@@ -107,8 +136,21 @@ function computeFallbackScore(nutrition) {
   const fields = [nutrition.breakfast, nutrition.lunch, nutrition.dinner, nutrition.snacks, nutrition.drinks];
   const filled = fields.filter(f => f && f.trim()).length;
   score += filled * 5;
-  // Cap at 65 for fallback since we can't analyze content
-  return Math.min(65, Math.max(1, score));
+
+  const amount = Number(nutrition.waterAmount);
+  if (Number.isFinite(amount) && amount > 0) {
+    const unit = (typeof nutrition.waterUnit === 'string' && nutrition.waterUnit) ? nutrition.waterUnit : 'L';
+    const ml = toMilliliters(amount, unit) || 0;
+    if (ml >= 3000) score += 8;
+    else if (ml >= 2000) score += 5;
+    else if (ml >= 1000) score += 2;
+    else score -= 3;
+  } else {
+    score -= 5;
+  }
+
+  // Cap at 70 for fallback since we can't analyze content
+  return Math.min(70, Math.max(1, score));
 }
 
 module.exports = { computeHealthScore };

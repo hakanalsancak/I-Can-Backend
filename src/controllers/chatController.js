@@ -200,6 +200,10 @@ function buildRecentEntriesSummary(entries) {
         if (n.dinner) meals.push(`dinner: ${n.dinner.substring(0, 50)}`);
         if (n.snacks) meals.push(`snacks: ${n.snacks.substring(0, 40)}`);
         if (n.drinks) meals.push(`drinks: ${n.drinks.substring(0, 40)}`);
+        if (typeof n.waterAmount === 'number' && n.waterAmount > 0) {
+          const unit = (typeof n.waterUnit === 'string' && n.waterUnit) ? n.waterUnit : 'L';
+          meals.push(`water: ${n.waterAmount}${unit}`);
+        }
         if (meals.length > 0) sections.push(`Nutrition: ${meals.join(', ')}`);
       }
 
