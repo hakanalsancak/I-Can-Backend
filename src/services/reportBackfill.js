@@ -373,4 +373,4 @@ function stripUndefined(o) {
   return out;
 }
 
-module.exports = { applyBackfill, computeOverlay };
+module.exports = { applyBackfill, computeOverlay, scoreEntry };

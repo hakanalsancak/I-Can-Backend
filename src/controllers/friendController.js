@@ -1,4 +1,5 @@
 const { query, getClient } = require('../config/database');
+const { scoreEntry } = require('../services/reportBackfill');
 
 const EFFECTIVE_STREAK = `CASE
   WHEN s.last_entry_date >= CURRENT_DATE - INTERVAL '1 day' THEN s.current_streak
@@ -448,6 +449,8 @@ exports.getFriendLogs = async (req, res, next) => {
         };
       }
 
+      const scored = scoreEntry({ responses: parsed });
+
       logs.push({
         id: row.id,
         entryDate: row.entry_date instanceof Date
@@ -457,6 +460,9 @@ exports.getFriendLogs = async (req, res, next) => {
         training,
         nutrition,
         sleep,
+        trainingScore: training ? scored.training : null,
+        nutritionScore: nutrition ? scored.nutrition : null,
+        overallScore: scored.overall || null,
       });
     }
 
