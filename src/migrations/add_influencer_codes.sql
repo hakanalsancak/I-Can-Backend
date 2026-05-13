@@ -30,12 +30,14 @@ CREATE INDEX IF NOT EXISTS idx_influencer_codes_name
 
 -- Captures the code the user typed *before* Apple's redeem sheet is presented.
 -- When the redemption webhook arrives we join on user_id to credit the right
--- code. One pending claim per user; expires after 1 hour.
+-- code. One pending claim per user; expires after 7 days (some users complete
+-- Apple's flow asynchronously, and Transaction.updates may not fire until the
+-- next app launch).
 CREATE TABLE IF NOT EXISTS pending_code_claim (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   code TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '1 hour'
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days'
 );
 
 CREATE INDEX IF NOT EXISTS idx_pending_code_claim_expires

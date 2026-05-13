@@ -33,13 +33,17 @@ exports.claimCode = async (req, res, next) => {
       return res.status(404).json({ error: 'Code not found or inactive' });
     }
 
+    // 7-day window: Apple may not fire Transaction.updates until the user
+    // relaunches the app, and some users sit on an unfinished redeem screen
+    // for days. 7d is long enough to catch nearly all real redemptions while
+    // still expiring stale claims for housekeeping.
     await query(
       `INSERT INTO pending_code_claim (user_id, code, created_at, expires_at)
-       VALUES ($1, $2, NOW(), NOW() + INTERVAL '1 hour')
+       VALUES ($1, $2, NOW(), NOW() + INTERVAL '7 days')
        ON CONFLICT (user_id) DO UPDATE SET
          code = EXCLUDED.code,
          created_at = NOW(),
-         expires_at = NOW() + INTERVAL '1 hour'`,
+         expires_at = NOW() + INTERVAL '7 days'`,
       [req.userId, code]
     );
 
