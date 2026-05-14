@@ -257,15 +257,42 @@ exports.verifyReceipt = async (req, res, next) => {
     // Prevent receipt replay: reject if this transaction is already used by a different user.
     // Use the JWS-verified original transaction ID — the request-body value is attacker-controlled
     // and would let the same JWS be replayed across accounts with a different forged ID each time.
-    // Skip in StoreKit testing mode — Xcode reuses transaction IDs across simulator resets
+    // Skip in StoreKit testing mode — Xcode reuses transaction IDs across simulator resets.
+    //
+    // Important: Apple's originalTransactionId is stable across a subscription's
+    // entire lifecycle for a given Apple ID. A user who creates a new in-app
+    // account on the same device (same Apple ID) and re-subscribes will produce
+    // a NEW JWS with the SAME originalTransactionId. Blocking unconditionally
+    // would charge the user via Apple but refuse them premium. So:
+    //   - If the prior account's subscription is still live (active/trial with
+    //     period_end in the future), keep blocking — that's a real replay attempt.
+    //   - If the prior account's subscription is expired/cancelled, take over
+    //     ownership: delete the stale row so the UPSERT below writes a fresh
+    //     one under the current user.
     const txId = String(jwsPayload.originalTransactionId || jwsPayload.transactionId);
     if (process.env.APPLE_STOREKIT_TESTING !== 'true') {
       const existingTx = await query(
-        'SELECT user_id FROM subscriptions WHERE apple_transaction_id = $1 AND user_id != $2',
+        `SELECT user_id, status, current_period_end, trial_end
+         FROM subscriptions WHERE apple_transaction_id = $1 AND user_id != $2`,
         [txId, req.userId]
       );
       if (existingTx.rows.length > 0) {
-        return res.status(409).json({ error: 'This transaction is already associated with another account' });
+        const prior = existingTx.rows[0];
+        const nowDate = new Date();
+        const priorIsLive =
+          (prior.status === 'active' && prior.current_period_end && new Date(prior.current_period_end) > nowDate) ||
+          (prior.status === 'trial' && prior.trial_end && new Date(prior.trial_end) > nowDate);
+
+        if (priorIsLive) {
+          console.warn(`Replay block: tx=${txId} live on user=${prior.user_id}, refused for user=${req.userId}`);
+          return res.status(409).json({ error: 'This transaction is already associated with another active account' });
+        }
+
+        console.log(`Subscription takeover: tx=${txId} prior_user=${prior.user_id} (status=${prior.status}) → new_user=${req.userId}`);
+        await query(
+          'DELETE FROM subscriptions WHERE apple_transaction_id = $1 AND user_id = $2',
+          [txId, prior.user_id]
+        );
       }
     }
 
