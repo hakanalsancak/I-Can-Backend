@@ -105,7 +105,12 @@ const VALID_PRODUCT_IDS = new Set([
 // swallowed — failure here must never break receipt verification for the user.
 async function attributeInfluencerRedemption(userId, productId, jwsPayload) {
   try {
-    if (jwsPayload.offerType !== 3) return;
+    // Apple JSON-encodes offerType as a number, but be defensive in case the
+    // shape ever shifts (e.g. string). Coerce to Number for the comparison.
+    if (Number(jwsPayload.offerType) !== 3) {
+      console.log(`Attribution skip: offerType=${jwsPayload.offerType} (not an offer-code redemption) user=${userId}`);
+      return;
+    }
 
     const txId = String(jwsPayload.originalTransactionId || jwsPayload.transactionId);
 
@@ -115,20 +120,29 @@ async function attributeInfluencerRedemption(userId, productId, jwsPayload) {
        RETURNING code`,
       [userId]
     );
-    if (claim.rows.length === 0) return;
+    if (claim.rows.length === 0) {
+      console.log(`Attribution skip: no pending_code_claim for user=${userId} (tx=${txId})`);
+      return;
+    }
 
     const { code } = claim.rows[0];
 
     // We only attach influencer codes to the yearly offer. If a redemption
     // somehow comes through on monthly, skip attribution rather than guess.
-    if (!productId.includes('yearly')) return;
+    if (!productId.includes('yearly')) {
+      console.log(`Attribution skip: non-yearly product=${productId} for code=${code} user=${userId}`);
+      return;
+    }
 
     const codeRow = await query(
       `SELECT influencer_name, payout_yearly_cents
        FROM influencer_codes WHERE code = $1`,
       [code]
     );
-    if (codeRow.rows.length === 0) return;
+    if (codeRow.rows.length === 0) {
+      console.log(`Attribution skip: code=${code} not found in influencer_codes (user=${userId})`);
+      return;
+    }
 
     const { influencer_name, payout_yearly_cents } = codeRow.rows[0];
     const payoutCents = payout_yearly_cents;
@@ -142,6 +156,7 @@ async function attributeInfluencerRedemption(userId, productId, jwsPayload) {
       [userId, code, influencer_name, txId, productId,
        jwsPayload.offerIdentifier || null, payoutCents]
     );
+    console.log(`Attribution success: code=${code} influencer=${influencer_name} payout=${payoutCents}c user=${userId} tx=${txId}`);
   } catch (err) {
     console.error('Influencer attribution failed:', err.message);
   }
@@ -280,11 +295,10 @@ exports.verifyReceipt = async (req, res, next) => {
     // Look up prior state to decide whether to send a "new subscription" email.
     // Without this, restore-purchases or app reinstall would re-fire the email.
     const priorSub = await query(
-      'SELECT apple_transaction_id, status FROM subscriptions WHERE user_id = $1',
+      'SELECT apple_transaction_id FROM subscriptions WHERE user_id = $1',
       [req.userId]
     );
     const priorTxId = priorSub.rows[0]?.apple_transaction_id;
-    const priorStatus = priorSub.rows[0]?.status;
 
     const result = await query(
       `INSERT INTO subscriptions (user_id, apple_transaction_id, product_id, status,
@@ -304,10 +318,15 @@ exports.verifyReceipt = async (req, res, next) => {
        isTrial ? new Date(jwsPayload.purchaseDate) : null, isTrial ? periodEnd : null, periodEnd]
     );
 
-    // Only notify on real subscription state changes (new sub or resubscribe after lapse).
-    // Skip when the same active transaction is being re-verified (e.g. iOS restore).
+    // Only notify on real subscription state changes (new sub or resubscribe).
+    // Distinguishing a new Apple transaction from a re-verification of the same
+    // one is enough — apple_transaction_id is the unique identity of a purchase.
+    // We deliberately do NOT filter on priorStatus: a user can buy a new yearly
+    // sub while their old row is still 'trial' or 'active' (auto-renew off but
+    // not yet expired, trial not yet converted, monthly→yearly upgrade, etc.),
+    // and those still need attribution + email.
     const isNewSubscription = !priorTxId;
-    const isResubscribe = priorTxId && priorTxId !== txId && (priorStatus === 'expired' || priorStatus === 'cancelled');
+    const isResubscribe = priorTxId && priorTxId !== txId;
 
     // Attribute influencer offer-code redemptions on first-time inserts only —
     // restores/re-verifications of an existing tx should not double-credit.
