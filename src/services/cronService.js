@@ -361,18 +361,6 @@ function initCronJobs() {
     }
   }, { timezone: 'UTC' });
 
-  // Clean up expired pending influencer code claims: daily at 03:10 UTC
-  cron.schedule('10 3 * * *', async () => {
-    try {
-      const result = await query('DELETE FROM pending_code_claim WHERE expires_at < NOW()');
-      if (result.rowCount > 0) {
-        console.log(`Cleaned up ${result.rowCount} expired pending code claims`);
-      }
-    } catch (err) {
-      console.error('Pending code claim cleanup cron error:', err.message);
-    }
-  }, { timezone: 'UTC' });
-
   // Motivational quotes: hourly. Fires when *user-local* hour is 9, 13, or 18.
   // Slot 1 (9am) goes to freq>=1, slot 2 (1pm) to freq>=2, slot 3 (6pm) to freq>=3.
   // Each iteration of the cron evaluates all three slots: a user in UTC and a

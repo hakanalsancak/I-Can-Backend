@@ -99,69 +99,6 @@ const VALID_PRODUCT_IDS = new Set([
   'com.ican.premium.yearly',
 ]);
 
-// Best-effort: if this user has a pending claim from `claim-code` and the
-// just-verified transaction was redeemed with an offer code (offerType=3),
-// record an attribution row so we know which influencer to pay. Errors are
-// swallowed — failure here must never break receipt verification for the user.
-async function attributeInfluencerRedemption(userId, productId, jwsPayload) {
-  try {
-    // Apple JSON-encodes offerType as a number, but be defensive in case the
-    // shape ever shifts (e.g. string). Coerce to Number for the comparison.
-    if (Number(jwsPayload.offerType) !== 3) {
-      console.log(`Attribution skip: offerType=${jwsPayload.offerType} (not an offer-code redemption) user=${userId}`);
-      return;
-    }
-
-    const txId = String(jwsPayload.originalTransactionId || jwsPayload.transactionId);
-
-    const claim = await query(
-      `DELETE FROM pending_code_claim
-       WHERE user_id = $1 AND expires_at > NOW()
-       RETURNING code`,
-      [userId]
-    );
-    if (claim.rows.length === 0) {
-      console.log(`Attribution skip: no pending_code_claim for user=${userId} (tx=${txId})`);
-      return;
-    }
-
-    const { code } = claim.rows[0];
-
-    // We only attach influencer codes to the yearly offer. If a redemption
-    // somehow comes through on monthly, skip attribution rather than guess.
-    if (!productId.includes('yearly')) {
-      console.log(`Attribution skip: non-yearly product=${productId} for code=${code} user=${userId}`);
-      return;
-    }
-
-    const codeRow = await query(
-      `SELECT influencer_name, payout_yearly_cents
-       FROM influencer_codes WHERE code = $1`,
-      [code]
-    );
-    if (codeRow.rows.length === 0) {
-      console.log(`Attribution skip: code=${code} not found in influencer_codes (user=${userId})`);
-      return;
-    }
-
-    const { influencer_name, payout_yearly_cents } = codeRow.rows[0];
-    const payoutCents = payout_yearly_cents;
-
-    await query(
-      `INSERT INTO influencer_redemptions
-        (user_id, code, influencer_name, original_transaction_id, product_id,
-         offer_identifier, status, payout_cents)
-       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7)
-       ON CONFLICT (original_transaction_id) DO NOTHING`,
-      [userId, code, influencer_name, txId, productId,
-       jwsPayload.offerIdentifier || null, payoutCents]
-    );
-    console.log(`Attribution success: code=${code} influencer=${influencer_name} payout=${payoutCents}c user=${userId} tx=${txId}`);
-  } catch (err) {
-    console.error('Influencer attribution failed:', err.message);
-  }
-}
-
 exports.getStatus = async (req, res, next) => {
   try {
     const userResult = await query('SELECT email FROM users WHERE id = $1', [req.userId]);
@@ -348,18 +285,8 @@ exports.verifyReceipt = async (req, res, next) => {
     // Only notify on real subscription state changes (new sub or resubscribe).
     // Distinguishing a new Apple transaction from a re-verification of the same
     // one is enough — apple_transaction_id is the unique identity of a purchase.
-    // We deliberately do NOT filter on priorStatus: a user can buy a new yearly
-    // sub while their old row is still 'trial' or 'active' (auto-renew off but
-    // not yet expired, trial not yet converted, monthly→yearly upgrade, etc.),
-    // and those still need attribution + email.
     const isNewSubscription = !priorTxId;
     const isResubscribe = priorTxId && priorTxId !== txId;
-
-    // Attribute influencer offer-code redemptions on first-time inserts only —
-    // restores/re-verifications of an existing tx should not double-credit.
-    if (isNewSubscription || isResubscribe) {
-      await attributeInfluencerRedemption(req.userId, productId, jwsPayload);
-    }
 
     if (isNewSubscription || isResubscribe) {
       const userInfo = await query(
@@ -487,14 +414,6 @@ exports.appleWebhook = async (req, res) => {
         await query(
           "UPDATE subscriptions SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
           [subId]
-        );
-        // Cancel any influencer payout owed for this transaction so we don't
-        // pay a bounty on a refunded sub. Original-transaction-id is the link.
-        await query(
-          `UPDATE influencer_redemptions
-           SET status = $1, refunded_at = NOW()
-           WHERE original_transaction_id = $2 AND status = 'active'`,
-          [notificationType === 'REFUND' ? 'refunded' : 'revoked', txId]
         );
         notifyEvent(notificationType === 'REFUND' ? 'refunded' : 'revoked', null);
         break;
