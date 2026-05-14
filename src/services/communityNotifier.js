@@ -60,7 +60,23 @@ async function notifyDM({ senderId, recipientId, conversationId, body }) {
   });
 }
 
+async function notifyGroupMessage({ senderId, recipientIds, conversationId, groupTitle, body }) {
+  if (!Array.isArray(recipientIds) || recipientIds.length === 0) return;
+  const name = await senderDisplayName(senderId);
+  const trimmed = (body || '').trim().slice(0, 140);
+  const pushBody = trimmed.length > 0 ? `${name}: ${trimmed}` : `${name} sent a message`;
+  await Promise.all(recipientIds.map(uid => {
+    if (!uid || uid === senderId) return Promise.resolve();
+    return sendCommunityPush(uid, {
+      title: groupTitle || 'Group',
+      body: pushBody,
+      data: { type: 'community.group', conversationId },
+    });
+  }));
+}
+
 module.exports = {
   sendCommunityPush,
   notifyDM,
+  notifyGroupMessage,
 };

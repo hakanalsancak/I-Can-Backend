@@ -17,6 +17,9 @@ function formatMessage(row) {
     createdAt: row.created_at,
     deliveredAt: row.delivered_at || null,
     readAt: row.read_at || null,
+    isSystem: row.is_system === true,
+    systemEvent: row.system_event || null,
+    systemMeta: row.system_meta || null,
     // Denormalized reply preview joined in by the SELECT — null when this
     // message isn't a reply, or when the original was hard-deleted.
     replyTo: row.reply_to_id ? {
@@ -33,6 +36,10 @@ function formatConversation(row, viewerId) {
     id: row.id,
     isGroup: row.is_group,
     title: row.title || null,
+    photoUrl: row.photo_url || null,
+    creatorId: row.creator_id || null,
+    viewerRole: row.viewer_role || null,
+    memberCount: row.member_count ?? null,
     isRequest: row.is_request === true,
     lastMessageAt: row.last_message_at,
     lastReadAt: row.last_read_at,
@@ -45,11 +52,12 @@ function formatConversation(row, viewerId) {
       sport: row.other_sport || null,
       lastSeenAt: row.other_last_seen_at || null,
     } : null,
-    lastMessage: row.last_message_body
+    lastMessage: row.last_message_body || row.last_message_is_system
       ? {
           senderId: row.last_message_sender_id,
-          body: row.last_message_body,
+          body: row.last_message_body || '',
           createdAt: row.last_message_created_at,
+          isSystem: row.last_message_is_system === true,
         }
       : null,
   };
@@ -88,25 +96,34 @@ exports.listConversations = async (req, res, next) => {
         WHERE delivered_at IS NULL
           AND deleted_at IS NULL
           AND sender_id <> $1
+          AND is_system = FALSE
           AND conversation_id IN (
-            SELECT conversation_id FROM dm_conversation_members WHERE user_id = $1
+            SELECT conversation_id FROM dm_conversation_members
+             WHERE user_id = $1 AND left_at IS NULL
           )`,
       [req.userId]
     );
 
-    // 1:1 conversations: find the OTHER member, plus latest message and unread count
+    // Active memberships only: skip groups the viewer has left.
     const result = await query(
       `WITH my_convs AS (
-         SELECT c.id, c.is_group, c.title, c.last_message_at,
+         SELECT c.id, c.is_group, c.title, c.photo_url, c.creator_id, c.last_message_at,
                 m_self.last_read_at,
-                m_self.is_request
+                m_self.is_request,
+                m_self.role AS viewer_role
            FROM dm_conversations c
            JOIN dm_conversation_members m_self
-             ON m_self.conversation_id = c.id AND m_self.user_id = $1
+             ON m_self.conversation_id = c.id
+            AND m_self.user_id = $1
+            AND m_self.left_at IS NULL
        )
-       SELECT mc.id, mc.is_group, mc.title, mc.last_message_at,
-              mc.last_read_at, mc.is_request,
-              other.user_id        AS other_id,
+       SELECT mc.id, mc.is_group, mc.title, mc.photo_url, mc.creator_id,
+              mc.last_message_at, mc.last_read_at, mc.is_request, mc.viewer_role,
+              CASE WHEN mc.is_group THEN
+                (SELECT COUNT(*)::int FROM dm_conversation_members m
+                  WHERE m.conversation_id = mc.id AND m.left_at IS NULL)
+              ELSE NULL END AS member_count,
+              CASE WHEN mc.is_group THEN NULL ELSE other.user_id END AS other_id,
               u.full_name          AS other_full_name,
               u.username           AS other_username,
               u.profile_photo_url  AS other_photo_url,
@@ -115,22 +132,24 @@ exports.listConversations = async (req, res, next) => {
               lm.body              AS last_message_body,
               lm.sender_id         AS last_message_sender_id,
               lm.created_at        AS last_message_created_at,
+              lm.is_system         AS last_message_is_system,
               (
                 SELECT COUNT(*)::int FROM dm_messages dm
                  WHERE dm.conversation_id = mc.id
                    AND dm.deleted_at IS NULL
                    AND dm.sender_id <> $1
+                   AND dm.is_system = FALSE
                    AND (mc.last_read_at IS NULL OR dm.created_at > mc.last_read_at)
               ) AS unread_count
          FROM my_convs mc
          LEFT JOIN LATERAL (
            SELECT m.user_id FROM dm_conversation_members m
-            WHERE m.conversation_id = mc.id AND m.user_id <> $1
+            WHERE m.conversation_id = mc.id AND m.user_id <> $1 AND m.left_at IS NULL
             LIMIT 1
-         ) other ON TRUE
+         ) other ON NOT mc.is_group
          LEFT JOIN users u ON u.id = other.user_id
          LEFT JOIN LATERAL (
-           SELECT body, sender_id, created_at FROM dm_messages
+           SELECT body, sender_id, created_at, is_system FROM dm_messages
             WHERE conversation_id = mc.id AND deleted_at IS NULL
             ORDER BY created_at DESC LIMIT 1
          ) lm ON TRUE
@@ -212,7 +231,8 @@ exports.getMessages = async (req, res, next) => {
     if (!UUID.test(id)) return res.status(400).json({ error: 'Invalid id' });
 
     const member = await query(
-      `SELECT 1 FROM dm_conversation_members WHERE conversation_id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT 1 FROM dm_conversation_members
+        WHERE conversation_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
       [id, req.userId]
     );
     if (member.rows.length === 0) {
@@ -241,6 +261,7 @@ exports.getMessages = async (req, res, next) => {
           WHERE conversation_id = $1
             AND sender_id <> $2
             AND deleted_at IS NULL
+            AND is_system = FALSE
             AND delivered_at IS NULL`,
         [id, req.userId]
       );
@@ -249,6 +270,7 @@ exports.getMessages = async (req, res, next) => {
     const baseSql = `
       SELECT m.id, m.conversation_id, m.sender_id, m.body, m.attachment_type, m.attachment_ref,
              m.created_at, m.delivered_at, m.read_at,
+             m.is_system, m.system_event, m.system_meta,
              r.id              AS reply_to_id,
              r.sender_id       AS reply_to_sender_id,
              r.body            AS reply_to_body,
@@ -275,16 +297,22 @@ exports.getMessages = async (req, res, next) => {
     // Include the other party's presence so the chat header can refresh
     // "Online" / "Last seen…" off the same poll that drives messages.
     let otherLastSeenAt = null;
-    const presence = await query(
-      `SELECT u.last_seen_at
-         FROM dm_conversation_members m
-         JOIN users u ON u.id = m.user_id
-        WHERE m.conversation_id = $1 AND m.user_id <> $2
-        LIMIT 1`,
-      [id, req.userId]
+    const groupCheck = await query(
+      `SELECT is_group FROM dm_conversations WHERE id = $1`,
+      [id]
     );
-    if (presence.rows.length > 0) {
-      otherLastSeenAt = presence.rows[0].last_seen_at || null;
+    if (groupCheck.rows[0] && !groupCheck.rows[0].is_group) {
+      const presence = await query(
+        `SELECT u.last_seen_at
+           FROM dm_conversation_members m
+           JOIN users u ON u.id = m.user_id
+          WHERE m.conversation_id = $1 AND m.user_id <> $2 AND m.left_at IS NULL
+          LIMIT 1`,
+        [id, req.userId]
+      );
+      if (presence.rows.length > 0) {
+        otherLastSeenAt = presence.rows[0].last_seen_at || null;
+      }
     }
 
     res.json({ items, nextCursor, otherLastSeenAt });
@@ -363,20 +391,29 @@ exports.sendMessage = async (req, res, next) => {
     }
 
     const member = await query(
-      `SELECT 1 FROM dm_conversation_members WHERE conversation_id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT 1 FROM dm_conversation_members
+        WHERE conversation_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
       [id, req.userId]
     );
     if (member.rows.length === 0) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Block check against the OTHER member of the 1:1 conversation
+    const convMeta = await query(
+      `SELECT is_group, title FROM dm_conversations WHERE id = $1`,
+      [id]
+    );
+    const isGroup = !!convMeta.rows[0]?.is_group;
+    const groupTitle = convMeta.rows[0]?.title || null;
+
+    // 1:1 only: block-check the OTHER party. In groups the sender is gated by
+    // active membership, and per-user blocks are enforced on push fan-out below.
     const other = await query(
       `SELECT user_id FROM dm_conversation_members
-        WHERE conversation_id = $1 AND user_id <> $2 LIMIT 1`,
+        WHERE conversation_id = $1 AND user_id <> $2 AND left_at IS NULL`,
       [id, req.userId]
     );
-    if (other.rows.length > 0) {
+    if (!isGroup && other.rows.length > 0) {
       if (await isBlockedBetween(req.userId, other.rows[0].user_id)) {
         return res.status(403).json({ error: 'Action not allowed' });
       }
@@ -429,12 +466,23 @@ exports.sendMessage = async (req, res, next) => {
           default: pushBody = 'sent a message';
         }
       }
-      notifyDM({
-        senderId: req.userId,
-        recipientId: other.rows[0].user_id,
-        conversationId: id,
-        body: pushBody,
-      }).catch(err => console.error('notifyDM error:', err.message));
+      if (isGroup) {
+        const { notifyGroupMessage } = require('../services/communityNotifier');
+        notifyGroupMessage({
+          senderId: req.userId,
+          recipientIds: other.rows.map(r => r.user_id),
+          conversationId: id,
+          groupTitle: groupTitle || 'Group',
+          body: pushBody,
+        }).catch(err => console.error('notifyGroupMessage error:', err.message));
+      } else {
+        notifyDM({
+          senderId: req.userId,
+          recipientId: other.rows[0].user_id,
+          conversationId: id,
+          body: pushBody,
+        }).catch(err => console.error('notifyDM error:', err.message));
+      }
     }
 
     res.status(201).json(formatMessage(inserted.rows[0]));
@@ -552,7 +600,7 @@ exports.markRead = async (req, res, next) => {
     const result = await query(
       `UPDATE dm_conversation_members
           SET last_read_at = NOW(), is_request = FALSE
-        WHERE conversation_id = $1 AND user_id = $2
+        WHERE conversation_id = $1 AND user_id = $2 AND left_at IS NULL
         RETURNING last_read_at`,
       [id, req.userId]
     );

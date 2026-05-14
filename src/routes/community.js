@@ -11,6 +11,7 @@ const dmUpload = multer({
 });
 const sportFeed = require('../controllers/sportFeedController');
 const dm = require('../controllers/dmController');
+const groups = require('../controllers/groupController');
 const moderation = require('../controllers/moderationController');
 
 router.use(authenticate);
@@ -26,6 +27,13 @@ router.post('/messages/conversations/:id/messages', dm.sendMessage);
 router.delete('/messages/conversations/:id/messages/:messageId', dm.deleteMessage);
 router.post('/messages/conversations/:id/read', dm.markRead);
 router.post('/messages/upload', dmUpload.single('file'), dm.uploadMedia);
+
+router.post('/messages/groups', groups.createGroup);
+router.get('/messages/conversations/:id/info', groups.getGroupInfo);
+router.patch('/messages/conversations/:id', groups.updateGroup);
+router.post('/messages/conversations/:id/members', groups.addMembers);
+router.delete('/messages/conversations/:id/members/:userId', groups.removeMember);
+router.post('/messages/conversations/:id/members/:userId/role', groups.setMemberRole);
 
 router.post('/reports', moderation.createReport);
 router.post('/blocks/:userId', moderation.block);
