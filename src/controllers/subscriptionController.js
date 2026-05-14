@@ -357,6 +357,12 @@ exports.appleWebhook = async (req, res) => {
       return res.status(400).json({ error: 'Invalid transaction signature' });
     }
 
+    // Defense in depth: reject notifications for a different app's bundle.
+    if (transactionInfo.bundleId !== process.env.APPLE_BUNDLE_ID) {
+      console.error(`Apple webhook bundleId mismatch: got ${transactionInfo.bundleId}`);
+      return res.status(400).json({ error: 'Bundle ID mismatch' });
+    }
+
     const txId = String(transactionInfo.originalTransactionId || transactionInfo.transactionId);
 
     const subResult = await query(
