@@ -332,7 +332,15 @@ exports.refreshToken = async (req, res, next) => {
       return res.status(401).json({ error: 'Refresh token not found or expired' });
     }
 
-    await query('DELETE FROM refresh_tokens WHERE token_hash = $1', [tokenHash]);
+    // Grace window: shorten the old token's expiry instead of deleting it
+    // immediately. If the client never received the rotated tokens (network
+    // handoff, app suspended mid-request), a retry with the old refresh
+    // token still works for ~60s — preventing forced sign-outs from a lost
+    // response on an otherwise valid session.
+    await query(
+      "UPDATE refresh_tokens SET expires_at = NOW() + INTERVAL '60 seconds' WHERE token_hash = $1 AND expires_at > NOW() + INTERVAL '60 seconds'",
+      [tokenHash]
+    );
 
     const tokens = generateTokens(decoded.userId);
     await storeRefreshToken(decoded.userId, tokens.refreshToken);
