@@ -2,7 +2,7 @@
  * C-2: verifyReceipt must reject transactions with wrong bundleId.
  */
 
-const { query } = require('../src/config/database');
+const { query, getClient } = require('../src/config/database');
 
 jest.mock('../src/config/database', () => ({
   query: jest.fn(),
@@ -79,11 +79,21 @@ describe('verifyReceipt bundle ID check (C-2)', () => {
     })).toString('base64url');
     const fakeJWS = `${header}.${payload}.fakesig`;
 
+    const client = {
+      query: jest.fn(),
+      release: jest.fn(),
+    };
+    getClient.mockResolvedValue(client);
+
     // Mock: user email, no existing tx, upsert subscription
     query
-      .mockResolvedValueOnce({ rows: [{ email: 'user@test.com' }] }) // user email
-      .mockResolvedValueOnce({ rows: [] }) // replay check
-      .mockResolvedValueOnce({ rows: [{ status: 'active', current_period_end: new Date(Date.now() + 86400000) }] }); // upsert
+      .mockResolvedValueOnce({ rows: [{ email: 'user@test.com' }] }); // user email
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [] }) // advisory lock
+      .mockResolvedValueOnce({ rows: [] }) // prior sub
+      .mockResolvedValueOnce({ rows: [{ status: 'active', current_period_end: new Date(Date.now() + 86400000) }] }) // upsert
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     const { verifyReceipt } = require('../src/controllers/subscriptionController');
 
@@ -105,5 +115,10 @@ describe('verifyReceipt bundle ID check (C-2)', () => {
     if (res.status.mock.calls.length > 0) {
       expect(res.status).not.toHaveBeenCalledWith(400);
     }
+    expect(getClient).toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledWith('BEGIN');
+    expect(client.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock(hashtext($1))', ['txn-456']);
+    expect(client.query).toHaveBeenCalledWith('COMMIT');
+    expect(client.release).toHaveBeenCalled();
   });
 });

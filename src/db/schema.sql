@@ -106,6 +106,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_subscriptions_transaction ON subscriptions(apple_transaction_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_apple_transaction_unique
+ON subscriptions(apple_transaction_id)
+WHERE apple_transaction_id IS NOT NULL;
 
 -- NOTIFICATION LOG
 CREATE TABLE IF NOT EXISTS notification_log (

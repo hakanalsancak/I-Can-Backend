@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+const { query, getClient } = require('../config/database');
 const crypto = require('crypto');
 const { sendSubscriptionEmail } = require('../services/emailService');
 
@@ -99,6 +99,13 @@ const VALID_PRODUCT_IDS = new Set([
   'com.ican.premium.yearly',
 ]);
 
+function isLiveSubscription(row, now = new Date()) {
+  return (
+    (row.status === 'active' && row.current_period_end && new Date(row.current_period_end) > now) ||
+    (row.status === 'trial' && row.trial_end && new Date(row.trial_end) > now)
+  );
+}
+
 exports.getStatus = async (req, res, next) => {
   try {
     const userResult = await query('SELECT email FROM users WHERE id = $1', [req.userId]);
@@ -140,8 +147,9 @@ exports.getStatus = async (req, res, next) => {
 };
 
 exports.verifyReceipt = async (req, res, next) => {
+  let client;
   try {
-    const { transactionId, productId, originalTransactionId } = req.body;
+    const { transactionId, productId } = req.body;
     if (!transactionId || !productId) {
       return res.status(400).json({ error: 'Transaction ID and product ID are required' });
     }
@@ -204,34 +212,9 @@ exports.verifyReceipt = async (req, res, next) => {
     //   - If the prior account's subscription is still live (active/trial with
     //     period_end in the future), keep blocking — that's a real replay attempt.
     //   - If the prior account's subscription is expired/cancelled, take over
-    //     ownership: delete the stale row so the UPSERT below writes a fresh
-    //     one under the current user.
+    //     ownership by clearing the stale row's Apple transaction link before
+    //     the UPSERT below writes it under the current user.
     const txId = String(jwsPayload.originalTransactionId || jwsPayload.transactionId);
-    if (process.env.APPLE_STOREKIT_TESTING !== 'true') {
-      const existingTx = await query(
-        `SELECT user_id, status, current_period_end, trial_end
-         FROM subscriptions WHERE apple_transaction_id = $1 AND user_id != $2`,
-        [txId, req.userId]
-      );
-      if (existingTx.rows.length > 0) {
-        const prior = existingTx.rows[0];
-        const nowDate = new Date();
-        const priorIsLive =
-          (prior.status === 'active' && prior.current_period_end && new Date(prior.current_period_end) > nowDate) ||
-          (prior.status === 'trial' && prior.trial_end && new Date(prior.trial_end) > nowDate);
-
-        if (priorIsLive) {
-          console.warn(`Replay block: tx=${txId} live on user=${prior.user_id}, refused for user=${req.userId}`);
-          return res.status(409).json({ error: 'This transaction is already associated with another active account' });
-        }
-
-        console.log(`Subscription takeover: tx=${txId} prior_user=${prior.user_id} (status=${prior.status}) → new_user=${req.userId}`);
-        await query(
-          'DELETE FROM subscriptions WHERE apple_transaction_id = $1 AND user_id = $2',
-          [txId, prior.user_id]
-        );
-      }
-    }
 
     // Use Apple's authoritative expiration date from the JWS payload
     let periodEnd;
@@ -256,15 +239,43 @@ exports.verifyReceipt = async (req, res, next) => {
     const isTrial = jwsPayload.offerType === 1;
     const subscriptionStatus = isTrial ? 'trial' : 'active';
 
+    client = await getClient();
+    await client.query('BEGIN');
+
+    // Serialize all mutations for the same Apple subscription chain.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [txId]);
+
+    if (process.env.APPLE_STOREKIT_TESTING !== 'true') {
+      const existingTx = await client.query(
+        `SELECT user_id, status, current_period_end, trial_end
+         FROM subscriptions WHERE apple_transaction_id = $1 AND user_id != $2`,
+        [txId, req.userId]
+      );
+      if (existingTx.rows.length > 0) {
+        const prior = existingTx.rows[0];
+        if (isLiveSubscription(prior)) {
+          await client.query('ROLLBACK');
+          console.warn(`Replay block: tx=${txId} live on user=${prior.user_id}, refused for user=${req.userId}`);
+          return res.status(409).json({ error: 'This transaction is already associated with another active account' });
+        }
+
+        console.log(`Subscription takeover: tx=${txId} prior_user=${prior.user_id} (status=${prior.status}) → new_user=${req.userId}`);
+        await client.query(
+          'UPDATE subscriptions SET apple_transaction_id = NULL, updated_at = NOW() WHERE apple_transaction_id = $1 AND user_id = $2',
+          [txId, prior.user_id]
+        );
+      }
+    }
+
     // Look up prior state to decide whether to send a "new subscription" email.
     // Without this, restore-purchases or app reinstall would re-fire the email.
-    const priorSub = await query(
+    const priorSub = await client.query(
       'SELECT apple_transaction_id FROM subscriptions WHERE user_id = $1',
       [req.userId]
     );
     const priorTxId = priorSub.rows[0]?.apple_transaction_id;
 
-    const result = await query(
+    const result = await client.query(
       `INSERT INTO subscriptions (user_id, apple_transaction_id, product_id, status,
        trial_start, trial_end, current_period_start, current_period_end)
        VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)
@@ -281,6 +292,8 @@ exports.verifyReceipt = async (req, res, next) => {
       [req.userId, txId, productId, subscriptionStatus,
        isTrial ? new Date(jwsPayload.purchaseDate) : null, isTrial ? periodEnd : null, periodEnd]
     );
+
+    await client.query('COMMIT');
 
     // Only notify on real subscription state changes (new sub or resubscribe).
     // Distinguishing a new Apple transaction from a re-verification of the same
@@ -322,7 +335,15 @@ exports.verifyReceipt = async (req, res, next) => {
       productId: sub.product_id,
     });
   } catch (err) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    }
+    if (err && err.code === '23505') {
+      return res.status(409).json({ error: 'This transaction is already associated with another account' });
+    }
     next(err);
+  } finally {
+    client?.release();
   }
 };
 
@@ -391,18 +412,33 @@ exports.appleWebhook = async (req, res) => {
       });
     };
 
+    const activateSubscription = async ({ event } = {}) => {
+      const periodEnd = transactionInfo.expiresDate ? new Date(transactionInfo.expiresDate) : null;
+      if (!periodEnd || isNaN(periodEnd.getTime())) return;
+
+      await query(
+        `UPDATE subscriptions SET status = 'active',
+         current_period_start = NOW(), current_period_end = $1,
+         updated_at = NOW() WHERE id = $2`,
+        [periodEnd, subId]
+      );
+
+      if (event) {
+        notifyEvent(event, periodEnd.toISOString());
+      }
+    };
+
     switch (notificationType) {
       case 'DID_RENEW': {
-        const periodEnd = transactionInfo.expiresDate ? new Date(transactionInfo.expiresDate) : null;
-        if (periodEnd && !isNaN(periodEnd.getTime())) {
-          await query(
-            `UPDATE subscriptions SET status = 'active',
-             current_period_start = NOW(), current_period_end = $1,
-             updated_at = NOW() WHERE id = $2`,
-            [periodEnd, subId]
-          );
-          notifyEvent('renewed', periodEnd.toISOString());
-        }
+        await activateSubscription({ event: 'renewed' });
+        break;
+      }
+
+      case 'SUBSCRIBED':
+      case 'DID_RECOVER':
+      case 'RENEWAL_EXTENDED':
+      case 'RENEWAL_EXTENSION': {
+        await activateSubscription();
         break;
       }
 
