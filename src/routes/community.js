@@ -13,8 +13,12 @@ const sportFeed = require('../controllers/sportFeedController');
 const dm = require('../controllers/dmController');
 const groups = require('../controllers/groupController');
 const moderation = require('../controllers/moderationController');
+const communityCount = require('../controllers/communityCountController');
 
 router.use(authenticate);
+
+router.get('/count', communityCount.getCount);
+router.post('/join', communityCount.join);
 
 router.get('/sport-feed', sportFeed.getSportFeed);
 router.post('/sport-feed/track-interaction', sportFeed.trackInteraction);
