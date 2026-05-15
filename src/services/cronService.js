@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { query } = require('../config/database');
 const { generateReport } = require('./aiService');
-const { getRandomQuote, getUsersForNotificationAtLocalHour, logNotification } = require('./notificationService');
+const { logNotification } = require('./notificationService');
 
 async function getActiveUsers() {
   const result = await query(
@@ -335,54 +335,6 @@ function initCronJobs() {
       console.log(`Cleaned up ${result.rowCount} expired refresh tokens`);
     } catch (err) {
       console.error('Refresh token cleanup cron error:', err.message);
-    }
-  }, { timezone: 'UTC' });
-
-  // Motivational quotes: hourly. Fires when *user-local* hour is 9, 13, or 18.
-  // Slot 1 (9am) goes to freq>=1, slot 2 (1pm) to freq>=2, slot 3 (6pm) to freq>=3.
-  // Each iteration of the cron evaluates all three slots: a user in UTC and a
-  // user in UTC+5 will trigger different slots in different cron runs based on
-  // EXTRACT(HOUR ... AT TIME ZONE) — see getUsersForNotificationAtLocalHour.
-  cron.schedule('0 * * * *', async () => {
-    const slots = [
-      { localHour: 9,  requiredFrequency: 1 },
-      { localHour: 13, requiredFrequency: 2 },
-      { localHour: 18, requiredFrequency: 3 },
-    ];
-
-    const { sendPush } = require('../config/apns');
-
-    for (const slot of slots) {
-      try {
-        const users = await getUsersForNotificationAtLocalHour(slot.localHour, slot.requiredFrequency);
-        if (users.length === 0) continue;
-
-        console.log(`Motivational quote slot localHour=${slot.localHour} freq>=${slot.requiredFrequency}: ${users.length} users`);
-
-        let sent = 0;
-        let failed = 0;
-        for (const user of users) {
-          try {
-            const quote = getRandomQuote();
-            const tokens = (user.tokens || []).filter(Boolean);
-            if (tokens.length > 0) {
-              await sendPush(tokens, {
-                title: 'I Can',
-                body: quote,
-                data: { type: 'motivational_quote' },
-              });
-              sent++;
-            }
-            await logNotification(user.id, 'motivational_quote', quote);
-          } catch (userErr) {
-            failed++;
-            console.error(`Quote push failed for user ${user.id}:`, userErr.message);
-          }
-        }
-        console.log(`Motivational quotes localHour=${slot.localHour}: ${sent} sent, ${failed} failed`);
-      } catch (err) {
-        console.error(`Quote cron error (localHour=${slot.localHour}):`, err.message);
-      }
     }
   }, { timezone: 'UTC' });
 
