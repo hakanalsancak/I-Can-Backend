@@ -3,23 +3,19 @@ const { query } = require('../config/database');
 const { generateReport } = require('./aiService');
 const { getRandomQuote, getUsersForNotificationAtLocalHour, logNotification } = require('./notificationService');
 
-async function getPremiumUsers() {
+async function getActiveUsers() {
   const result = await query(
     `SELECT DISTINCT u.id FROM users u
-     JOIN subscriptions s ON s.user_id = u.id
-     WHERE ((s.status = 'active' AND s.current_period_end > NOW()) OR (s.status = 'trial' AND s.trial_end > NOW()))
-     AND u.onboarding_completed = TRUE`
+     WHERE u.onboarding_completed = TRUE`
   );
   return result.rows;
 }
 
-// Get premium users whose local midnight hour (00:xx) is right now
-async function getPremiumUsersAtLocalMidnight() {
+// Get all onboarded users whose local midnight hour (00:xx) is right now
+async function getActiveUsersAtLocalMidnight() {
   const result = await query(
     `SELECT DISTINCT u.id, u.timezone FROM users u
-     JOIN subscriptions s ON s.user_id = u.id
-     WHERE ((s.status = 'active' AND s.current_period_end > NOW()) OR (s.status = 'trial' AND s.trial_end > NOW()))
-     AND u.onboarding_completed = TRUE
+     WHERE u.onboarding_completed = TRUE
      AND EXTRACT(HOUR FROM NOW() AT TIME ZONE COALESCE(u.timezone, 'UTC')) = 0`
   );
   return result.rows;
@@ -102,7 +98,7 @@ async function generateReportForUser(user, reportType, periodStart, periodEnd, m
 }
 
 async function generateReportsForPeriod(reportType, periodStart, periodEnd, minEntries) {
-  const users = await getPremiumUsers();
+  const users = await getActiveUsers();
   return await processUserBatch(users, reportType, periodStart, periodEnd, minEntries);
 }
 
@@ -279,8 +275,8 @@ function initCronJobs() {
   // UK users get reports at UK midnight, Turkey at Turkey midnight, US at US midnight, etc.
   cron.schedule('0 * * * *', async () => {
     try {
-      // Find all premium users whose local time is currently 00:xx (midnight hour)
-      const midnightUsers = await getPremiumUsersAtLocalMidnight();
+      // Find all users whose local time is currently 00:xx (midnight hour)
+      const midnightUsers = await getActiveUsersAtLocalMidnight();
       if (midnightUsers.length === 0) return;
 
       // Categorize by what day it is locally for each user
@@ -329,25 +325,6 @@ function initCronJobs() {
       console.log(`Updated ${result.rowCount} fake leaderboard streaks`);
     } catch (err) {
       console.error('Fake streak cron error:', err.message);
-    }
-  }, { timezone: 'UTC' });
-
-  // Mark expired subscriptions: daily at 02:00 UTC
-  cron.schedule('0 2 * * *', async () => {
-    try {
-      const result = await query(
-        `UPDATE subscriptions SET status = 'expired', updated_at = NOW()
-         WHERE status IN ('active', 'trial')
-         AND (
-           (status = 'active' AND current_period_end < NOW())
-           OR (status = 'trial' AND trial_end < NOW())
-         )`
-      );
-      if (result.rowCount > 0) {
-        console.log(`Marked ${result.rowCount} subscriptions as expired`);
-      }
-    } catch (err) {
-      console.error('Subscription expiration cron error:', err.message);
     }
   }, { timezone: 'UTC' });
 

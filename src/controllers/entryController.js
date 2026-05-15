@@ -1,6 +1,5 @@
 const { query, getClient } = require('../config/database');
 const { getClient: getOpenAI } = require('../config/openai');
-const { checkPremiumAccess } = require('../services/subscriptionService');
 const { incrementalStreak } = require('./streakController');
 const { computeHealthScore } = require('../services/nutritionScorer');
 
@@ -515,11 +514,6 @@ exports.getAnalytics = async (req, res, next) => {
 
 exports.generateInsight = async (req, res, next) => {
   try {
-    const isPremium = await checkPremiumAccess(req.userId);
-    if (!isPremium) {
-      return res.status(403).json({ error: 'Premium subscription required', code: 'PREMIUM_REQUIRED' });
-    }
-
     const {
       activityType, proudMoment,
       trainingSessions, sessionScore,

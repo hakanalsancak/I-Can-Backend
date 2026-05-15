@@ -1,5 +1,4 @@
 const { query } = require('../config/database');
-const { checkPremiumAccess } = require('../services/subscriptionService');
 const { applyBackfill } = require('../services/reportBackfill');
 
 function formatDate(d) {
@@ -152,11 +151,6 @@ exports.getReports = async (req, res, next) => {
 
 exports.getReportById = async (req, res, next) => {
   try {
-    const isPremium = await checkPremiumAccess(req.userId);
-    if (!isPremium) {
-      return res.status(403).json({ error: 'Premium subscription required', code: 'PREMIUM_REQUIRED' });
-    }
-
     const result = await query(
       'SELECT * FROM ai_reports WHERE id = $1 AND user_id = $2',
       [req.params.id, req.userId]

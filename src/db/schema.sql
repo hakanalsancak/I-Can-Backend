@@ -90,26 +90,6 @@ CREATE TABLE IF NOT EXISTS ai_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_reports_user_type ON ai_reports(user_id, report_type, period_start DESC);
 
--- SUBSCRIPTIONS
-CREATE TABLE IF NOT EXISTS subscriptions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    apple_transaction_id VARCHAR(255),
-    product_id VARCHAR(100),
-    status VARCHAR(20) DEFAULT 'trial'
-        CHECK (status IN ('trial', 'active', 'expired', 'cancelled')),
-    trial_start TIMESTAMPTZ,
-    trial_end TIMESTAMPTZ,
-    current_period_start TIMESTAMPTZ,
-    current_period_end TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_transaction ON subscriptions(apple_transaction_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_apple_transaction_unique
-ON subscriptions(apple_transaction_id)
-WHERE apple_transaction_id IS NOT NULL;
-
 -- NOTIFICATION LOG
 CREATE TABLE IF NOT EXISTS notification_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -152,17 +132,6 @@ CREATE TABLE IF NOT EXISTS journal_notes (
     UNIQUE(user_id, note_date)
 );
 CREATE INDEX IF NOT EXISTS idx_journal_notes_user_date ON journal_notes(user_id, note_date DESC);
-
--- CHAT USAGE (daily message tracking for free users)
-CREATE TABLE IF NOT EXISTS chat_usage (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    message_count INT NOT NULL DEFAULT 1,
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, usage_date)
-);
-CREATE INDEX IF NOT EXISTS idx_chat_usage_user_date ON chat_usage(user_id, usage_date);
 
 -- FEEDBACK
 CREATE TABLE IF NOT EXISTS feedback (

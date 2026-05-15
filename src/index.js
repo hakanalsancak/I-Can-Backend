@@ -8,10 +8,6 @@ require('dotenv').config();
   }
 });
 
-if (!process.env.APPLE_BUNDLE_ID) {
-  throw new Error('APPLE_BUNDLE_ID must be set');
-}
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -24,7 +20,6 @@ const entryRoutes = require('./routes/entries');
 const friendRoutes = require('./routes/friends');
 const reportRoutes = require('./routes/reports');
 const streakRoutes = require('./routes/streaks');
-const subscriptionRoutes = require('./routes/subscriptions');
 const notificationRoutes = require('./routes/notifications');
 const leaderboardRoutes = require('./routes/leaderboard');
 const chatRoutes = require('./routes/chat');
@@ -71,7 +66,6 @@ app.use('/api/entries', entryRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/streaks', streakRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/chat', chatRoutes);

@@ -689,9 +689,7 @@ exports.deleteAccount = async (req, res, next) => {
       await client.query('DELETE FROM daily_entries WHERE user_id = $1', [req.userId]);
       await client.query('DELETE FROM streaks WHERE user_id = $1', [req.userId]);
       await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.userId]);
-      await client.query('DELETE FROM subscriptions WHERE user_id = $1', [req.userId]);
       await client.query('DELETE FROM device_tokens WHERE user_id = $1', [req.userId]);
-      await client.query('DELETE FROM chat_usage WHERE user_id = $1', [req.userId]);
       await client.query('DELETE FROM notification_log WHERE user_id = $1', [req.userId]);
       await client.query('DELETE FROM feedback WHERE user_id = $1', [req.userId]);
       await client.query('DELETE FROM users WHERE id = $1', [req.userId]);

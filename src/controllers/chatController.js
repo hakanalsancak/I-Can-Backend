@@ -1,6 +1,5 @@
 const { getClient } = require('../config/openai');
 const { query } = require('../config/database');
-const { checkPremiumAccess } = require('../services/subscriptionService');
 
 const SYSTEM_PROMPT = `You are an elite performance coach. Not an AI assistant. Not a chatbot. You are THE coach — confident, focused, slightly intense, and deeply invested in this athlete's growth.
 
@@ -225,8 +224,6 @@ function buildRecentEntriesSummary(entries) {
   return lines.join('\n');
 }
 
-const FREE_DAILY_LIMIT = 15;
-
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 // IANA timezone names: "Region/City", "UTC", "GMT", or fixed-offset like "Etc/GMT+5".
@@ -260,31 +257,6 @@ function resolveTodayContext(clientDate, clientTimezone) {
 
 exports.chat = async (req, res, next) => {
   try {
-    const isPremium = await checkPremiumAccess(req.userId);
-
-    // For free users, enforce daily message limit
-    let remaining = null; // null = unlimited (premium)
-    if (!isPremium) {
-      const usageResult = await query(
-        'SELECT message_count FROM chat_usage WHERE user_id = $1 AND usage_date = CURRENT_DATE',
-        [req.userId]
-      );
-      const currentCount = usageResult.rows.length > 0 ? usageResult.rows[0].message_count : 0;
-
-      if (currentCount >= FREE_DAILY_LIMIT) {
-        // Calculate reset time (next midnight UTC)
-        const now = new Date();
-        const resetAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
-        return res.status(429).json({
-          error: 'Daily message limit reached',
-          code: 'DAILY_LIMIT_EXCEEDED',
-          resetAt: resetAt.toISOString()
-        });
-      }
-
-      remaining = FREE_DAILY_LIMIT - currentCount - 1; // -1 for the current message
-    }
-
     const { message, history, conversationId, clientDate, clientTimezone } = req.body;
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'Message is required' });
@@ -463,22 +435,7 @@ exports.chat = async (req, res, next) => {
       [activeConversationId]
     );
 
-    // Track usage for free users
-    if (!isPremium) {
-      await query(
-        `INSERT INTO chat_usage (user_id, usage_date, message_count)
-         VALUES ($1, CURRENT_DATE, 1)
-         ON CONFLICT (user_id, usage_date)
-         DO UPDATE SET message_count = chat_usage.message_count + 1, updated_at = NOW()`,
-        [req.userId]
-      );
-    }
-
-    const response = { reply, conversationId: activeConversationId };
-    if (remaining !== null) {
-      response.remaining = remaining;
-    }
-    res.json(response);
+    res.json({ reply, conversationId: activeConversationId });
 
     // Generate a smart conversation title in the background (fire-and-forget)
     if (isNewConversation) {
